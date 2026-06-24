@@ -27,6 +27,7 @@ type Config struct {
 type Store struct {
 	db        *gorm.DB
 	authState AuthStateRepository
+	kvStore   KVStoreRepository
 	accounts  AccountRepository
 	providers ProviderRepository
 	identity  IdentityRepository
@@ -63,6 +64,7 @@ func Open(cfg Config) (*Store, error) {
 	return &Store{
 		db:        db,
 		authState: NewGormAuthStateRepository(db),
+		kvStore:   NewGormKVStoreRepository(db),
 		accounts:  NewGormAccountRepository(db),
 		providers: NewGormProviderRepository(db),
 		identity:  NewGormIdentityRepository(db),
@@ -73,6 +75,7 @@ func Open(cfg Config) (*Store, error) {
 
 func migrationModels() []interface{} {
 	return []interface{}{
+		&KVStoreRecord{},
 		&AuthStateRecord{},
 		&UserRecord{},
 		&RoleRecord{},
@@ -137,6 +140,11 @@ func (s *Store) DB() *gorm.DB {
 // AuthStates returns the repository for key/value auth state rows.
 func (s *Store) AuthStates() AuthStateRepository {
 	return s.authState
+}
+
+// KVStore returns the repository for generic adapter key/value rows.
+func (s *Store) KVStore() KVStoreRepository {
+	return s.kvStore
 }
 
 // Accounts returns account source/account/lease persistence operations.

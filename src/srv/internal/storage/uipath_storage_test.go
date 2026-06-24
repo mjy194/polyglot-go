@@ -2,53 +2,83 @@ package storage
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
-	"time"
 
+	"polyglot/internal/data"
 	pb "polyglot/proto/adapter"
 )
 
-func TestSaveAuthStateMergesExistingRow(t *testing.T) {
-	svc, err := NewUiPathStorageService(filepath.Join(t.TempDir(), "auth.db"))
+func newTestKVService(t *testing.T) *UiPathStorageService {
+	t.Helper()
+	store, err := data.Open(data.Config{Driver: data.DriverSQLite, DSN: ":memory:", AutoMigrate: true})
 	if err != nil {
-		t.Fatalf("NewUiPathStorageService: %v", err)
+		t.Fatalf("open store: %v", err)
 	}
-	defer svc.Close()
+	t.Cleanup(func() { _ = store.Close() })
+	return NewUiPathStorageServiceWithStore(store)
+}
 
+func TestKVPutGetRoundTrip(t *testing.T) {
+	svc := newTestKVService(t)
 	ctx := context.Background()
-	first := &pb.SaveAuthStateRequest{
-		Email:        "a@example.com",
-		AccessToken:  "token-1",
-		RefreshToken: "refresh-1",
-		ExpiresAt:    time.Now().Add(time.Hour).Unix(),
-		UpstreamUrl:  "https://example.test/1",
-	}
-	if _, err := svc.SaveAuthState(ctx, first); err != nil {
-		t.Fatalf("first SaveAuthState: %v", err)
+
+	if _, err := svc.Put(ctx, &pb.PutRequest{
+		SourceId: "uipath", Key: "auth/a@example.com",
+		Value: []byte(`{"access_token":"token-1"}`), ExpiresAt: 100,
+	}); err != nil {
+		t.Fatalf("Put: %v", err)
 	}
 
-	second := &pb.SaveAuthStateRequest{
-		Email:        "a@example.com",
-		AccessToken:  "token-2",
-		RefreshToken: "refresh-2",
-		ExpiresAt:    time.Now().Add(2 * time.Hour).Unix(),
-		UpstreamUrl:  "https://example.test/2",
-	}
-	if _, err := svc.SaveAuthState(ctx, second); err != nil {
-		t.Fatalf("second SaveAuthState: %v", err)
-	}
-
-	got, err := svc.LoadAuthState(ctx, &pb.LoadAuthStateRequest{
-		Email: "a@example.com",
-	})
+	got, err := svc.Get(ctx, &pb.GetRequest{SourceId: "uipath", Key: "auth/a@example.com"})
 	if err != nil {
-		t.Fatalf("LoadAuthState: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	if !got.Found {
-		t.Fatalf("expected state to be found")
+	if !got.Found || string(got.Value) != `{"access_token":"token-1"}` || got.ExpiresAt != 100 {
+		t.Fatalf("unexpected Get result: %+v", got)
 	}
-	if got.AccessToken != "token-2" || got.RefreshToken != "refresh-2" || got.UpstreamUrl != "https://example.test/2" {
-		t.Fatalf("loaded wrong state: %+v", got)
+}
+
+func TestKVPutOverwrites(t *testing.T) {
+	svc := newTestKVService(t)
+	ctx := context.Background()
+
+	_, _ = svc.Put(ctx, &pb.PutRequest{SourceId: "uipath", Key: "k", Value: []byte("v1")})
+	_, _ = svc.Put(ctx, &pb.PutRequest{SourceId: "uipath", Key: "k", Value: []byte("v2")})
+
+	got, _ := svc.Get(ctx, &pb.GetRequest{SourceId: "uipath", Key: "k"})
+	if !got.Found || string(got.Value) != "v2" {
+		t.Fatalf("expected overwrite to v2, got %+v", got)
+	}
+}
+
+func TestKVDelete(t *testing.T) {
+	svc := newTestKVService(t)
+	ctx := context.Background()
+
+	_, _ = svc.Put(ctx, &pb.PutRequest{SourceId: "uipath", Key: "k", Value: []byte("v")})
+	if _, err := svc.Delete(ctx, &pb.DeleteRequest{SourceId: "uipath", Key: "k"}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	got, _ := svc.Get(ctx, &pb.GetRequest{SourceId: "uipath", Key: "k"})
+	if got.Found {
+		t.Fatalf("expected record deleted, still found")
+	}
+}
+
+func TestKVListPrefix(t *testing.T) {
+	svc := newTestKVService(t)
+	ctx := context.Background()
+
+	_, _ = svc.Put(ctx, &pb.PutRequest{SourceId: "uipath", Key: "auth/a", Value: []byte("1")})
+	_, _ = svc.Put(ctx, &pb.PutRequest{SourceId: "uipath", Key: "auth/b", Value: []byte("2")})
+	_, _ = svc.Put(ctx, &pb.PutRequest{SourceId: "uipath", Key: "other/c", Value: []byte("3")})
+	_, _ = svc.Put(ctx, &pb.PutRequest{SourceId: "anthropic", Key: "auth/a", Value: []byte("x")})
+
+	resp, err := svc.List(ctx, &pb.ListRequest{SourceId: "uipath", Prefix: "auth/"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(resp.Entries) != 2 {
+		t.Fatalf("expected 2 auth/ entries under uipath, got %d", len(resp.Entries))
 	}
 }

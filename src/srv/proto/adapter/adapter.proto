@@ -23,13 +23,20 @@ service AdapterService {
   rpc CancelRequest(CancelRequestRequest) returns (CancelRequestResponse);
 }
 
-// StorageService 主服务提供的存储接口（用于 token 持久化）
+// StorageService 主服务提供的通用 KV 存储接口
+// 框架不解析 value 内容，adapter 自定义编码（JSON / proto / 任何格式）
 service StorageService {
-  // SaveAuthState 保存认证状态到数据库
-  rpc SaveAuthState(SaveAuthStateRequest) returns (SaveAuthStateResponse);
+  // Put 写入一条记录（带可选 TTL）
+  rpc Put(PutRequest) returns (PutResponse);
 
-  // LoadAuthState 从数据库加载认证状态
-  rpc LoadAuthState(LoadAuthStateRequest) returns (LoadAuthStateResponse);
+  // Get 按 (source_id, key) 读取
+  rpc Get(GetRequest) returns (GetResponse);
+
+  // Delete 按 (source_id, key) 删除
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+
+  // List 按 source_id 列出 keys，可选 prefix 过滤
+  rpc List(ListRequest) returns (ListResponse);
 }
 
 // AccountService 主服务提供的账号管理服务
@@ -122,31 +129,52 @@ message ReportUsageResponse {
 // Storage Service - Token 持久化
 // ============================================================================
 
-message SaveAuthStateRequest {
-  reserved 2, 3;
-  string email = 1;
-  string access_token = 4;
-  string refresh_token = 5;
-  int64 expires_at = 6;
-  string upstream_url = 7;
+// 通用 KV 存储 — 框架不解析 value，adapter 自定义编码
+
+message PutRequest {
+  string source_id = 1;   // adapter 命名空间标识
+  string key = 2;         // adapter 自定义 key
+  bytes value = 3;        // 不透明字节 — adapter 用 JSON/proto/任何格式
+  int64 expires_at = 4;   // 0 = 不过期
 }
 
-message SaveAuthStateResponse {
+message PutResponse {
   bool success = 1;
   string message = 2;
 }
 
-message LoadAuthStateRequest {
-  reserved 2, 3;
-  string email = 1;
+message GetRequest {
+  string source_id = 1;
+  string key = 2;
 }
 
-message LoadAuthStateResponse {
+message GetResponse {
   bool found = 1;
-  string access_token = 2;
-  string refresh_token = 3;
-  int64 expires_at = 4;
-  string upstream_url = 5;
+  bytes value = 2;
+  int64 expires_at = 3;
+}
+
+message DeleteRequest {
+  string source_id = 1;
+  string key = 2;
+}
+
+message DeleteResponse {
+  bool success = 1;
+}
+
+message ListRequest {
+  string source_id = 1;
+  string prefix = 2;      // 可选前缀过滤
+}
+
+message ListResponse {
+  repeated KVEntry entries = 1;
+}
+
+message KVEntry {
+  string key = 1;
+  int64 expires_at = 2;
 }
 
 // ============================================================================

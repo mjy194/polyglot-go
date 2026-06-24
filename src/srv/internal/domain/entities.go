@@ -68,17 +68,22 @@ type Provider struct {
 	AuthType       string    `json:"auth_type"`
 	DefaultHeaders string    `json:"default_headers"`
 	Status         string    `json:"status"`
-	ProxyStrategy  string    `json:"proxy_strategy"` // failover|round_robin|random
+	ProxyStrategy  string    `json:"proxy_strategy"`  // failover|round_robin|random
+	Mode           string    `json:"mode"`            // "" | "adapter" | "passthrough"
+	Adapter        string    `json:"adapter"`         // adapter mode: registered adapter provider name
+	APIKey         string    `json:"api_key"`         // passthrough mode: upstream api key
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // Proxy is a network proxy assignable to providers in a many-to-many relationship.
+// Type is derived from the URL scheme.
 type Proxy struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
-	URL       string    `json:"url"`        // scheme://[user:pass@]host:port
-	Type      string    `json:"type"`       // http|https|socks5
+	URL       string    `json:"url"`       // scheme://host:port (no credentials)
+	Username  string    `json:"username,omitempty"`
+	Password  string    `json:"password,omitempty"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -199,5 +204,12 @@ type RequestLog struct {
 	OutputTokens int64     `json:"output_tokens"`
 	ErrorType    string    `json:"error_type"`
 	ErrorMessage string    `json:"error_message"`
+	ClientIP     string    `json:"client_ip"`
+	Endpoint     string    `json:"endpoint"`
+	TTFTMs       int64     `json:"ttft_ms"`
+	AccountID    string    `json:"account_id"`
+	Cost         float64   `json:"cost"`
+	Type         string    `json:"type"` // stream | nonstream
+	CachedTokens int64     `json:"cached_tokens"`
 	CreatedAt    time.Time `json:"created_at"`
 }

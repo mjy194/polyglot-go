@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -158,6 +159,81 @@ func listenDualStack(host string, port int) (net.Listener, error) {
 	return net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
 }
 
+// rpCache memoizes a per-request routeProvider decision so the passthrough and
+// native layers (composed separately) share one DB lookup per request.
+type rpCache struct {
+	p  *domain.Provider
+	ok bool
+}
+
+const rpContextKey = "route_provider"
+
+// routeProvider picks the DB provider that should serve a protocol, considering
+// only providers that have explicitly opted into DB-driven routing (Mode != "").
+// Priority: passthrough-mode matching Type==protocol (responses→openai), then any
+// adapter-mode provider. Returns (nil,false) to signal "use legacy config routing".
+func (s *Server) routeProvider(ctx context.Context, protocol string) (*domain.Provider, bool) {
+	matchType := protocol
+	if protocol == passthrough.ProtocolResponses {
+		matchType = passthrough.ProtocolOpenAI
+	}
+	providers, err := s.dataStore.Providers().ListProviders(ctx)
+	if err != nil {
+		return nil, false
+	}
+	// Passthrough is the default mode (empty Mode == passthrough). An explicit
+	// adapter-mode provider is the generic fallback backbone.
+	for i := range providers {
+		p := &providers[i]
+		if p.Status == domain.StatusActive && (p.Mode == "passthrough" || p.Mode == "") && p.Type == matchType {
+			return p, true
+		}
+	}
+	for i := range providers {
+		p := &providers[i]
+		if p.Status == domain.StatusActive && p.Mode == "adapter" {
+			return p, true
+		}
+	}
+	return nil, false
+}
+
+// routeProviderCached is the per-request memoized variant for the routing layers.
+func (s *Server) routeProviderCached(c context.Context, protocol string) (*domain.Provider, bool) {
+	normalize := func(p *domain.Provider, ok bool) (*domain.Provider, bool) {
+		if p == nil {
+			return nil, false // never surface (nil, true)
+		}
+		return p, ok
+	}
+	if gc, ok := c.(*gin.Context); ok {
+		if v, exists := gc.Get(rpContextKey); exists {
+			if cp, ok := v.(*rpCache); ok {
+				return normalize(cp.p, cp.ok)
+			}
+		}
+		p, ok := s.routeProvider(c, protocol)
+		p, ok = normalize(p, ok)
+		gc.Set(rpContextKey, &rpCache{p: p, ok: ok})
+		return p, ok
+	}
+	return normalize(s.routeProvider(c, protocol))
+}
+
+// providerUpstream builds a passthrough upstream config from a DB provider.
+func providerUpstream(p *domain.Provider) config.UpstreamConfig {
+	headers := map[string]string{}
+	if p.DefaultHeaders != "" {
+		_ = json.Unmarshal([]byte(p.DefaultHeaders), &headers)
+	}
+	return config.UpstreamConfig{
+		BaseURL: p.BaseURL,
+		APIKey:  p.APIKey,
+		AuthType: p.AuthType,
+		Headers:  headers,
+	}
+}
+
 // Shutdown 优雅关闭
 func (s *Server) Shutdown(ctx context.Context) error {
 	// 停止账号池监控
@@ -226,7 +302,7 @@ func (r *storeProxyResolver) gatherCandidates(ctx context.Context, prov *domain.
 		if pr, ok := byID[l.ProxyID]; ok {
 			candidates = append(candidates, proxy.ResolvedProxy{
 				ID:       pr.ID,
-				URL:      pr.URL,
+				URL:      proxy.EmbedCredentials(pr.URL, pr.Username, pr.Password),
 				Priority: l.Priority,
 			})
 		}
@@ -284,6 +360,24 @@ func (r *storeProxyResolver) ResolveForName(ctx context.Context, name string) (s
 		return "", nil
 	}
 	sel := r.selectorFor("name:"+name, strategy)
+	pick, ok := sel.Pick(candidates)
+	if !ok {
+		return "", nil
+	}
+	return pick.URL, nil
+}
+
+// ResolveForProvider picks one proxy URL for an already-resolved provider struct
+// (used by the adapter/native path when a DB-routed provider is in hand).
+func (r *storeProxyResolver) ResolveForProvider(ctx context.Context, prov *domain.Provider) (string, error) {
+	candidates, strategy, err := r.gatherCandidates(ctx, prov)
+	if err != nil {
+		return "", err
+	}
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	sel := r.selectorFor("id:"+prov.ID, strategy)
 	pick, ok := sel.Pick(candidates)
 	if !ok {
 		return "", nil

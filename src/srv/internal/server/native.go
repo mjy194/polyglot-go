@@ -18,8 +18,13 @@ import (
 	pb "polyglot/proto/adapter"
 )
 
-func (s *Server) nativeAdapter(protocol, endpoint string) (adapter.NativeProcessor, bool) {
-	client, ok := s.accountService.NativeAdapterClient(s.config.Backend.Provider, protocol, endpoint)
+func (s *Server) nativeAdapter(c *gin.Context, protocol, endpoint string) (adapter.NativeProcessor, bool) {
+	// DB-routed adapter-mode provider takes precedence over the legacy config string.
+	name := s.config.Backend.Provider
+	if prov, ok := s.routeProviderCached(c, protocol); ok && prov.Mode == "adapter" {
+		name = prov.Adapter
+	}
+	client, ok := s.accountService.NativeAdapterClient(name, protocol, endpoint)
 	if !ok {
 		return nil, false
 	}
@@ -28,7 +33,7 @@ func (s *Server) nativeAdapter(protocol, endpoint string) (adapter.NativeProcess
 
 func (s *Server) withNative(protocol, endpoint string, fallback gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		processor, ok := s.nativeAdapter(protocol, endpoint)
+		processor, ok := s.nativeAdapter(c, protocol, endpoint)
 		if !ok {
 			telemetry.SetField(c, "route_mode", "universal")
 			telemetry.SetField(c, "protocol", protocol)
@@ -41,8 +46,12 @@ func (s *Server) withNative(protocol, endpoint string, fallback gin.HandlerFunc)
 		telemetry.SetField(c, "endpoint", endpoint)
 		proxyURL := ""
 		if s.proxyResolver != nil {
-			if u, err := s.proxyResolver.ResolveForName(c.Request.Context(), s.config.Backend.Provider); err == nil {
-				proxyURL = u
+			if prov, ok := s.routeProviderCached(c, protocol); ok && prov.Mode == "adapter" {
+				proxyURL, _ = s.proxyResolver.ResolveForProvider(c.Request.Context(), prov)
+			} else {
+				if u, err := s.proxyResolver.ResolveForName(c.Request.Context(), s.config.Backend.Provider); err == nil {
+					proxyURL = u
+				}
 			}
 		}
 		if err := serveNative(c, processor, protocol, endpoint, proxyURL); err != nil && !c.Writer.Written() {

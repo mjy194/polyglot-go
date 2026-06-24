@@ -95,3 +95,20 @@ func TestTransportForEmptyIsDefault(t *testing.T) {
 		t.Fatal("empty proxy URL should return DefaultTransport")
 	}
 }
+
+func TestEmbedCredentials(t *testing.T) {
+	cases := []struct {
+		name, url, user, pass, want string
+	}{
+		{"no creds", "http://1.2.3.4:8888", "", "", "http://1.2.3.4:8888"},
+		{"user only", "socks5://h:1080", "bob", "", "socks5://bob@h:1080"},
+		{"user+pass", "http://1.2.3.4:8888", "bob", "p@ss:word", "http://bob:p%40ss%3Aword@1.2.3.4:8888"},
+		{"invalid url passthrough", "://bad", "u", "p", "://bad"},
+	}
+	for _, c := range cases {
+		got := EmbedCredentials(c.url, c.user, c.pass)
+		if got != c.want {
+			t.Errorf("%s: got %q want %q", c.name, got, c.want)
+		}
+	}
+}

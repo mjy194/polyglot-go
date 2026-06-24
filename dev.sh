@@ -89,7 +89,11 @@ start_services() {
     fi
     echo "   ✅ Backend started"
 
-    # 启动 UiPath adapter
+    # 启动 UiPath adapter（NO_ADAPTER=1 跳过，只跑前端+后端）
+    if [ "${NO_ADAPTER:-0}" = "1" ]; then
+        echo ""
+        echo "⏭️  NO_ADAPTER=1 — skipping uipath_adapter (frontend + backend only)"
+    else
     echo ""
     echo "🔌 Starting uipath_adapter..."
     if [ ! -d "$ADAPTER_DIR" ]; then
@@ -122,6 +126,7 @@ start_services() {
             exit 1
         fi
         echo "   ✅ Adapter started"
+    fi
     fi
 
     # 启动前端

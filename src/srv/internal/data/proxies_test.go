@@ -23,11 +23,11 @@ func TestProxyRepositoryUpsertGetList(t *testing.T) {
 	repo := store.Proxies()
 	ctx := context.Background()
 
-	p1, err := repo.UpsertProxy(ctx, domain.Proxy{Name: "primary", URL: "http://127.0.0.1:8888", Type: "http"})
+	p1, err := repo.UpsertProxy(ctx, domain.Proxy{Name: "primary", URL: "http://127.0.0.1:8888", Username: "u", Password: "p"})
 	if err != nil {
 		t.Fatalf("UpsertProxy: %v", err)
 	}
-	if p1.ID == "" || p1.Status != domain.StatusActive {
+	if p1.ID == "" || p1.Status != domain.StatusActive || p1.Username != "u" {
 		t.Fatalf("unexpected proxy: %+v", p1)
 	}
 
@@ -41,7 +41,7 @@ func TestProxyRepositoryUpsertGetList(t *testing.T) {
 		t.Fatalf("GetProxy after update: %+v found=%v err=%v", got, found, err)
 	}
 
-	if _, err := repo.UpsertProxy(ctx, domain.Proxy{Name: "socks", URL: "socks5://127.0.0.1:1080", Type: "socks5"}); err != nil {
+	if _, err := repo.UpsertProxy(ctx, domain.Proxy{Name: "socks", URL: "socks5://127.0.0.1:1080"}); err != nil {
 		t.Fatalf("UpsertProxy second: %v", err)
 	}
 	list, err := repo.ListProxies(ctx)
@@ -69,8 +69,8 @@ func TestProviderProxiesReplaceAndOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertProvider: %v", err)
 	}
-	pa, _ := repo.UpsertProxy(ctx, domain.Proxy{Name: "a", URL: "http://a:1", Type: "http"})
-	pb, _ := repo.UpsertProxy(ctx, domain.Proxy{Name: "b", URL: "http://b:1", Type: "http"})
+	pa, _ := repo.UpsertProxy(ctx, domain.Proxy{Name: "a", URL: "http://a:1"})
+	pb, _ := repo.UpsertProxy(ctx, domain.Proxy{Name: "b", URL: "http://b:1"})
 
 	// initial set, with priorities out of insertion order
 	if err := repo.SetProviderProxies(ctx, prov.ID, []domain.ProviderProxy{

@@ -108,6 +108,24 @@ func quoteSQLiteIdent(ident string) string {
 	return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
 }
 
+// repairProxiesLegacyType drops the legacy proxies.type column from older DBs.
+// Type is now derived from the URL scheme; the old NOT NULL column would reject
+// new inserts that omit it. SQLite ≥ 3.35 supports DROP COLUMN; the column has no
+// index so no index cleanup is needed.
+func repairProxiesLegacyType(db *gorm.DB) error {
+	if db.Dialector.Name() != DriverSQLite {
+		return nil
+	}
+	has, err := sqliteColumnExists(db, "proxies", "type")
+	if err != nil {
+		return err
+	}
+	if !has {
+		return nil
+	}
+	return db.Exec(`ALTER TABLE "proxies" DROP COLUMN "type"`).Error
+}
+
 func repairBlankPrimaryKeys(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		if err := repairBlankUserID(tx); err != nil {

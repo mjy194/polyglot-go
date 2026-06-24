@@ -42,7 +42,8 @@ func (r *gormProxyRepository) UpsertProxy(ctx context.Context, proxy domain.Prox
 		DoUpdates: clause.AssignmentColumns([]string{
 			"name",
 			"url",
-			"type",
+			"username",
+			"password",
 			"status",
 			"updated_at",
 		}),

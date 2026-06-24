@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -28,24 +29,30 @@ func (s *Server) setupRoutes() {
 	})
 	s.router.GET("/metrics", telemetry.MetricsHandler())
 
-	// Anthropic Messages 解析器：按 backend.provider 从已注册 adapter 动态解析客户端。
-	// adapter 启动并 RegisterAccountSource 之前返回 503。
-	anthropicResolver := func() (adapter.StreamProcessor, bool) {
-		client, ok := s.accountService.AdapterClient(s.config.Backend.Provider)
-		if !ok {
-			return nil, false
+	// Universal 路径解析器：按协议查 DB provider（adapter 模式用 provider.Adapter），
+	// 否则落回 config.Backend.Provider。adapter 注册前返回 503。
+	universalResolver := func(protocol string) func() (adapter.StreamProcessor, bool) {
+		return func() (adapter.StreamProcessor, bool) {
+			name := s.config.Backend.Provider
+			if prov, ok := s.routeProvider(context.Background(), protocol); ok && prov.Mode == "adapter" {
+				name = prov.Adapter
+			}
+			client, ok := s.accountService.AdapterClient(name)
+			if !ok {
+				return nil, false
+			}
+			return adapter.NewStreamProcessor(client), true
 		}
-		return adapter.NewStreamProcessor(client), true
 	}
 
 	anthropicHandler := s.withPassthrough(passthrough.ProtocolAnthropic,
-		s.withNative(passthrough.ProtocolAnthropic, "messages", handler.AnthropicMessages(anthropicResolver)))
+		s.withNative(passthrough.ProtocolAnthropic, "messages", handler.AnthropicMessages(universalResolver(passthrough.ProtocolAnthropic))))
 	openAIHandler := s.withPassthrough(passthrough.ProtocolOpenAI,
-		s.withNative(passthrough.ProtocolOpenAI, "chat_completions", handler.OpenAIChatCompletions(anthropicResolver)))
+		s.withNative(passthrough.ProtocolOpenAI, "chat_completions", handler.OpenAIChatCompletions(universalResolver(passthrough.ProtocolOpenAI))))
 	responsesHandler := s.withPassthrough(passthrough.ProtocolResponses,
-		s.withNative(passthrough.ProtocolResponses, "responses", handler.Responses(anthropicResolver)))
+		s.withNative(passthrough.ProtocolResponses, "responses", handler.Responses(universalResolver(passthrough.ProtocolResponses))))
 	geminiHandler := s.withPassthrough(passthrough.ProtocolGemini,
-		s.withNative(passthrough.ProtocolGemini, "generate_content", handler.GeminiGenerateContent(anthropicResolver)))
+		s.withNative(passthrough.ProtocolGemini, "generate_content", handler.GeminiGenerateContent(universalResolver(passthrough.ProtocolGemini))))
 	apiKeyAuth := middleware.APIKeyAuth(s.dataStore)
 
 	// 标准路径 /v1/messages（真实 Anthropic 客户端如 claude CLI 走此路径）
@@ -101,13 +108,17 @@ func (s *Server) setupRoutes() {
 			admin.POST("/api-keys", handler.AdminUpsertAPIKey(s.dataStore))
 			admin.GET("/providers", handler.AdminProviders(s.dataStore))
 			admin.POST("/providers", handler.AdminUpsertProvider(s.dataStore))
+			admin.GET("/providers/health", handler.AdminProviderHealth(s.dataStore))
+			admin.GET("/providers/health/hourly", handler.AdminProviderHealthHourly(s.dataStore))
 			admin.GET("/providers/:id/proxies", handler.AdminListProviderProxies(s.dataStore))
 			admin.POST("/providers/:id/proxies", handler.AdminSetProviderProxies(s.dataStore))
+			admin.GET("/providers/:id/model-mappings", handler.AdminListProviderModelMappings(s.dataStore))
+			admin.POST("/providers/:id/model-mappings", handler.AdminUpsertProviderModelMapping(s.dataStore))
+			admin.DELETE("/model-mappings/:id", handler.AdminDeleteModelMapping(s.dataStore))
 			admin.GET("/proxies", handler.AdminProxies(s.dataStore))
 			admin.POST("/proxies", handler.AdminUpsertProxy(s.dataStore))
 			admin.DELETE("/proxies/:id", handler.AdminDeleteProxy(s.dataStore))
-			admin.GET("/model-mappings", handler.AdminModelMappings(s.dataStore))
-			admin.POST("/model-mappings", handler.AdminUpsertModelMapping(s.dataStore))
+			admin.POST("/proxies/:id/test", handler.AdminTestProxy(s.dataStore))
 			admin.GET("/adapters", handler.AdminAdapters(s.dataStore))
 			admin.GET("/adapter-instances", handler.AdminAdapterInstances(s.dataStore))
 			admin.GET("/request-logs", handler.AdminRequestLogs(s.dataStore))
@@ -123,6 +134,40 @@ func (s *Server) setupRoutes() {
 
 func (s *Server) withPassthrough(protocol string, fallback gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// DB-driven override: a passthrough-mode provider serves directly; an
+		// adapter-mode provider skips passthrough and falls through to native.
+		if prov, ok := s.routeProviderCached(c, protocol); ok {
+			// Record the resolved DB provider name so the audit log attributes
+			// the request to it (enables per-provider health).
+			c.Set(middleware.ContextAuditProvider, prov.Name)
+			if prov.Mode == "passthrough" {
+				telemetry.SetField(c, "route_mode", "passthrough")
+				telemetry.SetField(c, "protocol", protocol)
+				span := telemetry.Start(c, "route.passthrough", "protocol", protocol)
+				upstream := providerUpstream(prov)
+				err := s.passthrough.ServeHTTPWithUpstream(c.Writer, c.Request, protocol, upstream)
+				if err != nil {
+					if !c.Writer.Written() {
+						c.JSON(http.StatusBadGateway, gin.H{
+							"error": gin.H{
+								"message": err.Error(),
+								"type":    "passthrough_error",
+							},
+						})
+					}
+					span.EndError(err)
+				} else {
+					span.End()
+				}
+				c.Abort()
+				return
+			}
+			// mode == adapter → fall through to native (which uses prov.Adapter)
+			fallback(c)
+			return
+		}
+
+		// Legacy config-based passthrough.
 		if s.passthrough != nil && s.passthrough.Enabled(protocol) {
 			telemetry.SetField(c, "route_mode", "passthrough")
 			telemetry.SetField(c, "protocol", protocol)

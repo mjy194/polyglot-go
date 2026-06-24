@@ -82,7 +82,19 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, protocol strin
 	if !ok {
 		return fmt.Errorf("passthrough upstream not configured for %s", protocol)
 	}
+	return p.forward(w, r, protocol, upstream)
+}
 
+// ServeHTTPWithUpstream forwards using an explicit upstream (DB-provider-driven
+// passthrough). Proxy resolution still runs via p.resolver (the protocol maps to
+// the passthrough provider by Type, so its M:N proxies are picked up).
+func (p *Proxy) ServeHTTPWithUpstream(w http.ResponseWriter, r *http.Request, protocol string, upstream config.UpstreamConfig) error {
+	return p.forward(w, r, protocol, upstream)
+}
+
+// forward is the shared core: build the outbound request from upstream, apply an
+// outbound proxy if resolved, execute, and stream the response back.
+func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, protocol string, upstream config.UpstreamConfig) error {
 	target, err := targetURL(upstream.Endpoint(), r.URL)
 	if err != nil {
 		return err
@@ -208,7 +220,9 @@ func mergeRawQuery(baseQuery, requestQuery string) string {
 
 func copyRequestHeaders(dst, src http.Header) {
 	for key, values := range src {
-		if isHopByHopHeader(key) || strings.EqualFold(key, "Host") {
+		// Never forward the client's inbound credentials to the upstream — the
+		// gateway authenticates with its own provider API key (see applyAuth).
+		if isHopByHopHeader(key) || strings.EqualFold(key, "Host") || strings.EqualFold(key, "Authorization") {
 			continue
 		}
 		for _, value := range values {

@@ -57,6 +57,9 @@ func Open(cfg Config) (*Store, error) {
 		if err := repairLegacyOrgColumns(db); err != nil {
 			return nil, fmt.Errorf("repair legacy org columns: %w", err)
 		}
+		if err := repairProxiesLegacyType(db); err != nil {
+			return nil, fmt.Errorf("repair legacy proxies.type column: %w", err)
+		}
 		if err := repairBlankPrimaryKeys(db); err != nil {
 			return nil, fmt.Errorf("repair blank primary keys: %w", err)
 		}

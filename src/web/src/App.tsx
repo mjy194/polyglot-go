@@ -7,7 +7,7 @@ import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Providers from './pages/Providers';
-import ModelMappings from './pages/ModelMappings';
+import Proxies from './pages/Proxies';
 import ApiKeys from './pages/ApiKeys';
 import Users from './pages/Users';
 import Roles from './pages/Roles';
@@ -65,7 +65,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Dashboard />} />
         <Route path="/providers" element={<Providers />} />
-        <Route path="/model-mappings" element={<ModelMappings />} />
+        <Route path="/proxies" element={<Proxies />} />
         <Route path="/api-keys" element={<ApiKeys />} />
         <Route path="/users" element={<Users />} />
         <Route path="/roles" element={<Roles />} />

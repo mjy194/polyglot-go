@@ -18,6 +18,8 @@ type ProviderRepository interface {
 	UpsertCredential(ctx context.Context, credential domain.ProviderCredential) error
 	UpsertModelMapping(ctx context.Context, mapping domain.ModelMapping) (domain.ModelMapping, error)
 	ListModelMappings(ctx context.Context) ([]domain.ModelMapping, error)
+	ListModelMappingsByProvider(ctx context.Context, providerID string) ([]domain.ModelMapping, error)
+	DeleteModelMapping(ctx context.Context, id string) error
 }
 
 type gormProviderRepository struct {
@@ -43,6 +45,9 @@ func (r *gormProviderRepository) UpsertProvider(ctx context.Context, provider do
 			"default_headers",
 			"status",
 			"proxy_strategy",
+			"mode",
+			"adapter",
+			"api_key",
 			"updated_at",
 		}),
 	}).Create(&record).Error
@@ -103,4 +108,14 @@ func (r *gormProviderRepository) ListModelMappings(ctx context.Context) ([]domai
 	var mappings []ModelMappingRecord
 	err := r.db.WithContext(ctx).Order("created_at ASC").Find(&mappings).Error
 	return mappingsFromRecords(mappings), err
+}
+
+func (r *gormProviderRepository) ListModelMappingsByProvider(ctx context.Context, providerID string) ([]domain.ModelMapping, error) {
+	var mappings []ModelMappingRecord
+	err := r.db.WithContext(ctx).Where("provider_id = ?", providerID).Order("created_at ASC").Find(&mappings).Error
+	return mappingsFromRecords(mappings), err
+}
+
+func (r *gormProviderRepository) DeleteModelMapping(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&ModelMappingRecord{}).Error
 }

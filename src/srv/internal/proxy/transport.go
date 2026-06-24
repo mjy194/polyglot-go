@@ -44,3 +44,23 @@ func ClientFor(proxyURL string, timeout time.Duration) *http.Client {
 		Timeout:   timeout,
 	}
 }
+
+// EmbedCredentials returns a proxy URL with username/password embedded as
+// userinfo (scheme://user:pass@host:port). http.Transport honors this for both
+// HTTP CONNECT (Proxy-Authorization) and SOCKS5 auth. Empty user/pass returns
+// rawURL unchanged; an unparseable rawURL is returned as-is.
+func EmbedCredentials(rawURL, username, password string) string {
+	if username == "" && password == "" {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	if password == "" {
+		u.User = url.User(username)
+	} else {
+		u.User = url.UserPassword(username, password)
+	}
+	return u.String()
+}

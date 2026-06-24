@@ -71,16 +71,21 @@ type ProviderRecord struct {
 	DefaultHeaders string `gorm:"type:text;not null;default:'{}'"`
 	Status         string `gorm:"size:32;not null;default:active"`
 	ProxyStrategy  string `gorm:"size:16;not null;default:failover"` // failover|round_robin|random
+	Mode           string `gorm:"size:16"`                           // "" | "adapter" | "passthrough" (DB-driven routing; empty = legacy config)
+	Adapter        string `gorm:"size:64"`                           // adapter mode: registered-adapter provider name (e.g. "uipath")
+	APIKey         string `gorm:"size:512"`                          // passthrough mode: upstream api key
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
 
 // Proxy is a network proxy (HTTP/HTTPS/SOCKS5) assignable to providers (M:N).
+// Type is derived from the URL scheme — not stored separately.
 type ProxyRecord struct {
 	ID        string `gorm:"primaryKey;size:64"`
 	Name      string `gorm:"size:128;uniqueIndex;not null"`
-	URL       string `gorm:"column:url;size:1024;not null"` // scheme://[user:pass@]host:port
-	Type      string `gorm:"size:16;not null"`              // http|https|socks5
+	URL       string `gorm:"column:url;size:1024;not null"` // scheme://host:port (no credentials)
+	Username  string `gorm:"size:128"`
+	Password  string `gorm:"size:256"`
 	Status    string `gorm:"size:32;not null;default:active"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -210,6 +215,13 @@ type RequestLogRecord struct {
 	OutputTokens int64
 	ErrorType    string `gorm:"size:128"`
 	ErrorMessage string `gorm:"type:text"`
+	ClientIP     string `gorm:"size:64;index"`
+	Endpoint     string `gorm:"size:128"`
+	TTFTMs       int64 // time to first token (ms); 0 if never streamed/written
+	AccountID    string `gorm:"size:64;index"`
+	Cost         float64 `gorm:"type:numeric(12,6)"` // populated once pricing exists
+	Type         string `gorm:"size:16;index"` // stream | nonstream
+	CachedTokens int64
 	CreatedAt    time.Time
 }
 

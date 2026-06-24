@@ -3,6 +3,7 @@ package handler
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"polyglot/internal/authn"
 	"polyglot/internal/data"
 	"polyglot/internal/domain"
+	proxypkg "polyglot/internal/proxy"
 )
 
 // AdminStats returns request statistics from persisted request logs.
@@ -346,8 +348,44 @@ type providerProxyView struct {
 	Priority   int    `json:"priority"`
 	Name       string `json:"name"`
 	URL        string `json:"url"`
-	Type       string `json:"type"`
 	Status     string `json:"status"`
+}
+
+// AdminProviderHealth returns 24h per-provider request health (success rate +
+// latency + total), keyed by provider name. Used for the Providers health bars.
+func AdminProviderHealth(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		from := time.Now().Add(-24 * time.Hour)
+		stats, err := store.Audit().RequestStatsByProvider(c.Request.Context(), from)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		type health struct {
+			RequestsTotal    int64   `json:"requests_total"`
+			SuccessRate      float64 `json:"success_rate"`
+			AverageLatencyMs float64 `json:"avg_latency_ms"`
+		}
+		out := make(map[string]health, len(stats))
+		for name, s := range stats {
+			out[name] = health{RequestsTotal: s.RequestsTotal, SuccessRate: s.SuccessRate, AverageLatencyMs: s.AverageLatencyMs}
+		}
+		c.JSON(http.StatusOK, out)
+	}
+}
+
+// AdminProviderHealthHourly returns per-provider 24-hourly health buckets.
+// Slot 0 = oldest (23h ago), slot 23 = current hour.
+func AdminProviderHealthHourly(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		now := time.Now()
+		buckets, err := store.Audit().HourlyHealthByProvider(c.Request.Context(), now.Add(-24*time.Hour), now)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, buckets)
+	}
 }
 
 // AdminListProviderProxies returns the proxies attached to a provider, enriched.
@@ -369,11 +407,70 @@ func AdminListProviderProxies(store *data.Store) gin.HandlerFunc {
 		for _, l := range links {
 			v := providerProxyView{ProviderID: l.ProviderID, ProxyID: l.ProxyID, Priority: l.Priority}
 			if p, ok := byID[l.ProxyID]; ok {
-				v.Name, v.URL, v.Type, v.Status = p.Name, p.URL, p.Type, p.Status
+				v.Name, v.URL, v.Status = p.Name, p.URL, p.Status
 			}
 			out = append(out, v)
 		}
 		c.JSON(http.StatusOK, out)
+	}
+}
+
+// AdminTestProxy verifies a proxy by issuing a GET through it to a target URL.
+// Body (optional): {"target": "https://..."} — defaults to a small 204 endpoint.
+// Returns success + status code + latency, or an error message.
+func AdminTestProxy(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Target string `json:"target"`
+		}
+		_ = c.ShouldBindJSON(&req)
+		target := req.Target
+		if target == "" {
+			target = "https://www.gstatic.com/generate_204"
+		}
+
+		proxy, found, err := store.Proxies().GetProxy(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if !found {
+			c.JSON(http.StatusNotFound, gin.H{"error": "proxy not found"})
+			return
+		}
+
+		proxyURL := proxypkg.EmbedCredentials(proxy.URL, proxy.Username, proxy.Password)
+		client := proxypkg.ClientFor(proxyURL, 12*time.Second)
+
+		start := time.Now()
+		resp, err := client.Get(target)
+		latency := time.Since(start).Milliseconds()
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success":     false,
+				"proxy":       proxy.Name,
+				"target":      target,
+				"latency_ms":  latency,
+				"error":       err.Error(),
+				"exit_ip":     "",
+			})
+			return
+		}
+		defer resp.Body.Close()
+		// If the target is an IP-echo endpoint, surface the exit IP.
+		exitIP := ""
+		if strings.Contains(target, "ipify.org") || strings.Contains(target, "ifconfig.me") || strings.Contains(target, "icanhazip.com") {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 64))
+			exitIP = strings.TrimSpace(string(body))
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"success":    resp.StatusCode < 400,
+			"proxy":      proxy.Name,
+			"target":     target,
+			"status":     resp.StatusCode,
+			"latency_ms": latency,
+			"exit_ip":    exitIP,
+		})
 	}
 }
 
@@ -407,9 +504,10 @@ func writeFound(c *gin.Context, value interface{}, found bool, err error) {
 	c.JSON(http.StatusOK, value)
 }
 
-func AdminModelMappings(store *data.Store) gin.HandlerFunc {
+// AdminListProviderModelMappings lists the model mappings owned by a provider.
+func AdminListProviderModelMappings(store *data.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		mappings, err := store.Providers().ListModelMappings(c.Request.Context())
+		mappings, err := store.Providers().ListModelMappingsByProvider(c.Request.Context(), c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -418,19 +516,33 @@ func AdminModelMappings(store *data.Store) gin.HandlerFunc {
 	}
 }
 
-func AdminUpsertModelMapping(store *data.Store) gin.HandlerFunc {
+// AdminUpsertProviderModelMapping creates/updates a model mapping under a provider
+// (provider_id is taken from the path, not the body).
+func AdminUpsertProviderModelMapping(store *data.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var mapping domain.ModelMapping
 		if err := c.ShouldBindJSON(&mapping); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		mapping.ProviderID = c.Param("id")
 		mapping, err := store.Providers().UpsertModelMapping(c.Request.Context(), mapping)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, mapping)
+	}
+}
+
+// AdminDeleteModelMapping deletes a model mapping by id.
+func AdminDeleteModelMapping(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := store.Providers().DeleteModelMapping(c.Request.Context(), c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"deleted": c.Param("id")})
 	}
 }
 
@@ -463,7 +575,29 @@ func AdminRequestLogs(store *data.Store) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, logs)
+		// Enrich with user email + api key name for display.
+		userName := map[string]string{}
+		apiKeyName := map[string]string{}
+		if users, err := store.Identity().ListUsers(c.Request.Context()); err == nil {
+			for _, u := range users {
+				userName[u.ID] = u.Email
+			}
+		}
+		if keys, err := store.Identity().ListAPIKeys(c.Request.Context()); err == nil {
+			for _, k := range keys {
+				apiKeyName[k.ID] = k.Name
+			}
+		}
+		type view struct {
+			domain.RequestLog
+			UserName   string `json:"user_name"`
+			APIKeyName string `json:"api_key_name"`
+		}
+		out := make([]view, 0, len(logs))
+		for _, l := range logs {
+			out = append(out, view{RequestLog: l, UserName: userName[l.UserID], APIKeyName: apiKeyName[l.APIKeyID]})
+		}
+		c.JSON(http.StatusOK, out)
 	}
 }
 

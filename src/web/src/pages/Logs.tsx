@@ -53,27 +53,73 @@ function Logs() {
         emptyText="暂无请求日志"
         columns={[
           {
+            title: '用户',
+            render: (_, r) => r.user_name || r.user_id || '—',
+          },
+          {
+            title: 'API 密钥',
+            render: (_, r) => r.api_key_name || r.api_key_id || '—',
+          },
+          {
+            title: '账户',
+            dataIndex: 'account_id',
+            render: (v: string) => v || '—',
+          },
+          { title: '模型', dataIndex: 'model', render: (v: string) => v || '—' },
+          { title: '端点', dataIndex: 'endpoint', render: (v: string) => v || '—' },
+          {
+            title: '分组',
+            dataIndex: 'provider',
+            render: (v: string) => v || '—',
+          },
+          {
+            title: '类型',
+            dataIndex: 'type',
+            render: (v: string) => {
+              if (!v) return '—';
+              return <Tag color={v === 'stream' ? 'blue' : 'default'}>{v === 'stream' ? '流式' : '非流式'}</Tag>;
+            },
+          },
+          {
+            title: '计费模式',
+            render: () => '—',
+          },
+          {
+            title: 'Token (上游/下游/缓存)',
+            render: (_, r) => `${r.input_tokens || 0} / ${r.output_tokens || 0} / ${r.cached_tokens || 0}`,
+          },
+          {
+            title: '费用',
+            dataIndex: 'cost',
+            render: (v: number) => (v ? v.toFixed(4) : '—'),
+          },
+          {
+            title: '首 Token',
+            dataIndex: 'ttft_ms',
+            render: (v: number) => (v ? `${v} ms` : '—'),
+          },
+          {
+            title: '耗时',
+            dataIndex: 'latency_ms',
+            sorter: (a, b) => a.latency_ms - b.latency_ms,
+            render: (v: number) => `${v} ms`,
+          },
+          {
             title: '时间',
             dataIndex: 'created_at',
-            sorter: (a, b) => a.created_at.localeCompare(b.created_at),
             defaultSortOrder: 'descend',
+            render: (v: string) => new Date(v).toLocaleString(),
           },
-          { title: 'Provider', dataIndex: 'provider' },
-          { title: '协议', dataIndex: 'protocol' },
-          { title: '模型', dataIndex: 'model' },
+          {
+            title: 'IP',
+            dataIndex: 'client_ip',
+            render: (v: string) => v || '—',
+          },
           {
             title: '状态',
             dataIndex: 'status_code',
             render: (code: number, r) => <Tag color={r.success ? 'success' : 'error'}>{code}</Tag>,
           },
-          {
-            title: '延迟(ms)',
-            dataIndex: 'latency_ms',
-            sorter: (a, b) => a.latency_ms - b.latency_ms,
-          },
-          { title: '入', dataIndex: 'input_tokens' },
-          { title: '出', dataIndex: 'output_tokens' },
-          { title: '错误', dataIndex: 'error_message', ellipsis: true },
         ]}
       />
     </PageContainer>

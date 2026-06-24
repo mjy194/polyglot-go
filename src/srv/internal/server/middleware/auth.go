@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	ContextAPIKeyID = "api_key_id"
-	ContextUserID   = "user_id"
-	ContextScopes   = "scopes"
+	ContextAPIKeyID      = "api_key_id"
+	ContextUserID        = "user_id"
+	ContextScopes        = "scopes"
+	ContextAuditProvider = "audit_provider" // set by routing: the DB provider name that served the request
 )
 
 func APIKeyAuth(store *data.Store) gin.HandlerFunc {

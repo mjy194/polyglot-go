@@ -6,6 +6,8 @@ import type {
   UserRole,
   APIKey,
   Provider,
+  Proxy,
+  ProviderProxyView,
   ModelMapping,
   Adapter,
   AdapterInstance,
@@ -120,11 +122,57 @@ export const listProviders = () => client.get<Provider[]>('/providers').then((r)
 export const upsertProvider = (provider: Partial<Provider>) =>
   client.post<Provider>('/providers', provider).then((r) => r.data);
 
-// ---- Model Mappings ----
-export const listModelMappings = () =>
-  client.get<ModelMapping[]>('/model-mappings').then((r) => r.data);
-export const upsertModelMapping = (m: Partial<ModelMapping>) =>
-  client.post<ModelMapping>('/model-mappings', m).then((r) => r.data);
+export interface ProviderHealth {
+  requests_total: number;
+  success_rate: number; // 0..1
+  avg_latency_ms: number;
+}
+// 24h per-provider health, keyed by provider name.
+export const fetchProviderHealth = () =>
+  client.get<Record<string, ProviderHealth>>('/providers/health').then((r) => r.data);
+
+export interface HealthBucket {
+  total: number;
+  successes: number;
+}
+// 24-hourly health, slot 0 = oldest (23h ago), slot 23 = current hour.
+export const fetchProviderHealthHourly = () =>
+  client.get<Record<string, HealthBucket[]>>('/providers/health/hourly').then((r) => r.data);
+
+// ---- Proxies (network egress, M:N with providers) ----
+export const listProxies = () => client.get<Proxy[]>('/proxies').then((r) => r.data);
+export const upsertProxy = (proxy: Partial<Proxy>) =>
+  client.post<Proxy>('/proxies', proxy).then((r) => r.data);
+export const deleteProxy = (id: string) =>
+  client.delete<{ deleted: string }>(`/proxies/${id}`).then((r) => r.data);
+export const testProxy = (id: string, target?: string) =>
+  client
+    .post<{
+      success: boolean;
+      proxy?: string;
+      target?: string;
+      status?: number;
+      latency_ms?: number;
+      exit_ip?: string;
+      error?: string;
+    }>(`/proxies/${id}/test`, { target })
+    .then((r) => r.data);
+
+// ---- Provider↔Proxy associations ----
+export const listProviderProxies = (providerId: string) =>
+  client.get<ProviderProxyView[]>(`/providers/${providerId}/proxies`).then((r) => r.data);
+export const setProviderProxies = (
+  providerId: string,
+  assocs: { proxy_id: string; priority: number }[],
+) => client.post(`/providers/${providerId}/proxies`, assocs).then((r) => r.data);
+
+// ---- Model Mappings (provider-owned 1:N) ----
+export const listProviderModelMappings = (providerId: string) =>
+  client.get<ModelMapping[]>(`/providers/${providerId}/model-mappings`).then((r) => r.data);
+export const upsertProviderModelMapping = (providerId: string, m: Partial<ModelMapping>) =>
+  client.post<ModelMapping>(`/providers/${providerId}/model-mappings`, m).then((r) => r.data);
+export const deleteModelMapping = (id: string) =>
+  client.delete<{ deleted: string }>(`/model-mappings/${id}`).then((r) => r.data);
 
 // ---- Adapters ----
 export const listAdapters = () => client.get<Adapter[]>('/adapters').then((r) => r.data);

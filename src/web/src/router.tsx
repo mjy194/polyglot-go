@@ -2,7 +2,6 @@ import { ReactNode } from 'react';
 import {
   DashboardOutlined,
   ApiOutlined,
-  SwapOutlined,
   KeyOutlined,
   TeamOutlined,
   SafetyOutlined,
@@ -10,6 +9,7 @@ import {
   FileTextOutlined,
   BarChartOutlined,
   SettingOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
 
 export interface NavItem {
@@ -36,7 +36,7 @@ export const navGroups: NavGroup[] = [
     title: '配置',
     items: [
       { path: '/providers', label: 'Providers', icon: <ApiOutlined /> },
-      { path: '/model-mappings', label: '模型映射', icon: <SwapOutlined /> },
+      { path: '/proxies', label: '代理', icon: <GlobalOutlined /> },
       { path: '/adapters', label: 'Adapters', icon: <ClusterOutlined /> },
     ],
   },

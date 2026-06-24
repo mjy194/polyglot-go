@@ -50,8 +50,35 @@ export interface Provider {
   auth_type: string;
   default_headers: string;
   status: Status;
+  proxy_strategy?: string; // failover | round_robin | random
+  mode?: string; // "" | "adapter" | "passthrough"
+  adapter?: string; // adapter mode: registered adapter name (e.g. "uipath")
+  api_key?: string; // passthrough mode: upstream api key
   created_at: string;
   updated_at: string;
+}
+
+// Network proxy assignable to providers (M:N). Type is derived from URL scheme.
+export interface Proxy {
+  id: string;
+  name: string;
+  url: string; // scheme://host:port (credentials stored separately)
+  username?: string;
+  password?: string;
+  status: Status;
+  created_at: string;
+  updated_at: string;
+}
+
+// A provider↔proxy association, enriched with proxy details by the backend.
+export interface ProviderProxyView {
+  provider_id: string;
+  proxy_id: string;
+  priority: number;
+  name?: string;
+  url?: string;
+  type?: string;
+  status?: string;
 }
 
 export interface ModelMapping {
@@ -101,7 +128,17 @@ export interface RequestLog {
   output_tokens: number;
   error_type: string;
   error_message: string;
+  client_ip: string;
+  endpoint: string;
+  ttft_ms: number;
+  account_id: string;
+  cost: number;
+  type: string; // stream | nonstream
+  cached_tokens: number;
   created_at: string;
+  // enriched by the backend list endpoint
+  user_name?: string;
+  api_key_name?: string;
 }
 
 export interface UsageEvent {

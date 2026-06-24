@@ -1,0 +1,52 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test
+*.test
+*.out
+coverage.html
+
+# Go
+go.work
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+*.db
+*.db-shm
+*.db-wal
+data/**
+!**/data/
+!**/data/.gitkeep
+logs/
+
+# Config secrets
+**/config.local.yaml
+**/*secret*
+
+# Web
+**/node_modules/
+**/dist/
+**/.cache/
+
+# Process IDs
+.backend.pid
+.frontend.pid
+.dev.pids
+
+# Compiled server binary
+src/srv/polyglot-server
+
+# Proto generated
+**/*.pb.go

@@ -1,0 +1,53 @@
+# Polyglot 配置文件
+
+server:
+  host: "0.0.0.0"
+  port: 3100
+  cors:
+    - "*"
+
+database:
+  # 默认使用 SQLite；生产集中式部署可切换为 postgres。
+  driver: "sqlite" # sqlite | postgres
+  dsn: "data/data.db?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on"
+  auto_migrate: true
+  # postgres 示例：
+  # driver: "postgres"
+  # dsn: "host=127.0.0.1 user=polyglot password=polyglot dbname=polyglot port=5432 sslmode=disable TimeZone=UTC"
+
+backend:
+  provider: "uipath"
+
+  uipath:
+    org_name: "your-org"
+    tenant_name: "DefaultTenant"
+    email: "your-email@example.com"
+    password: "your-password"
+    auth_db_path: "data/data.db"
+
+  # 直连透传模式：把 provider 改成 "passthrough"，或保留现有 provider 并设置 enabled: true。
+  # 匹配到 upstream 的协议会原样转发请求/响应；未配置的协议继续走 adapter。
+  passthrough:
+    enabled: false
+    upstreams:
+      openai:
+        url: "https://api.openai.com"
+        api_key: "sk-..."
+      responses:
+        url: "https://api.openai.com"
+        api_key: "sk-..."
+      anthropic:
+        url: "https://api.anthropic.com"
+        api_key: "sk-ant-..."
+      gemini:
+        url: "https://generativelanguage.googleapis.com"
+        api_key: "AIza..."
+
+model_mapping:
+  claude-opus-4-8: claude_opus_4_7
+  claude-sonnet-4-6: claude_sonnet_4_6
+  claude-haiku-4-5: claude_haiku_4_5
+
+log:
+  level: "info"
+  format: "json"

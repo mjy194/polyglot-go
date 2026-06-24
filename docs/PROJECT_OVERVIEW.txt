@@ -1,0 +1,87 @@
+╔══════════════════════════════════════════════════════════════╗
+║                    🌐 Polyglot 项目                          ║
+║              Universal AI API Gateway                        ║
+╚══════════════════════════════════════════════════════════════╝
+
+📁 项目结构
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+new/polyglot/
+├── README.md              # 项目概览
+├── setup.sh               # 初始化脚本
+├── dev.sh                 # 开发脚本
+├── .gitignore
+├── docs/                  # 文档目录
+│   ├── QUICK_REFERENCE.md       # 快速参考
+│   ├── GETTING_STARTED.md       # 入门指南
+│   ├── FINAL_SUMMARY.md         # 完整总结
+│   └── PROJECT_STRUCTURE.md     # 项目结构
+├── src/
+│   ├── srv/               # Go 后端
+│   │   ├── cmd/           # 主程序
+│   │   ├── internal/      # 业务代码
+│   │   ├── pkg/           # 公共库
+│   │   ├── proto/         # gRPC 定义
+│   │   └── configs/       # 配置
+│   └── web/               # React 前端
+│       ├── src/
+│       │   ├── pages/     # 页面
+│       │   ├── components/
+│       │   ├── api/
+│       │   └── styles/
+│       └── public/
+
+📊 项目统计
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ Go 文件:        10 个
+✅ Proto 文件:     1 个
+✅ React 文件:     8 个
+✅ CSS 文件:       2 个
+✅ 脚本:           2 个
+✅ 文档:           5 个
+
+🎯 核心特性
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ 前后端分离架构
+✅ gRPC 协议定义完整
+✅ React + TypeScript 前端
+✅ Go + Gin + gRPC 后端
+✅ 智能路由系统
+✅ 自动化脚本
+✅ 完整文档
+
+🚀 快速开始
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+cd /home/javion/work/tools/polyglot/new/polyglot
+
+# 初始化
+./setup.sh
+
+# 启动
+./dev.sh
+
+# 访问
+http://localhost:3001/ui/  - 前端
+http://localhost:3000/api/ - 后端
+
+📋 常用命令
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+./dev.sh              启动开发服务器
+./dev.sh stop         停止服务
+./dev.sh restart      重启服务
+./dev.sh status       查看状态
+./dev.sh logs         查看日志
+
+📚 文档指南
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+README.md                      - 从这里开始
+docs/QUICK_REFERENCE.md        - 常用命令
+docs/GETTING_STARTED.md        - 详细教程
+docs/FINAL_SUMMARY.md          - 完整总结
+
+🎨 技术栈
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+后端: Go 1.21+ | Gin | gRPC | Viper | Zap
+前端: React 18 | TypeScript | Vite | React Router | Axios
+协议: gRPC (Protobuf) | HTTP/JSON | SSE
+
+✨ 项目就绪，可以开始开发了！

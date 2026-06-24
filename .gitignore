@@ -34,6 +34,9 @@ logs/
 # Config secrets
 **/config.local.yaml
 **/*secret*
+.env
+.env.*
+!.env.example
 
 # Web
 **/node_modules/

@@ -7,6 +7,8 @@
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE="$BASE_DIR/.dev.pids"
+ADAPTER_DIR="$BASE_DIR/../uipath_adapter"
+ENV_FILE="$BASE_DIR/.env"
 
 # ============================================================================
 # 停止服务
@@ -87,11 +89,46 @@ start_services() {
     fi
     echo "   ✅ Backend started"
 
+    # 启动 UiPath adapter
+    echo ""
+    echo "🔌 Starting uipath_adapter..."
+    if [ ! -d "$ADAPTER_DIR" ]; then
+        echo "   ⚠️  Adapter dir not found: $ADAPTER_DIR — skipping"
+    elif [ ! -f "$ENV_FILE" ]; then
+        echo "   ⚠️  $ENV_FILE not found — adapter will run in mock mode"
+        echo "   Create .env with UIPATH_EMAIL/PASSWORD/ORG_NAME/TENANT_NAME for real backend"
+    else
+        # 加载 env 并启动 adapter（仅本子 shell 见到这些 env，不污染当前 shell）
+        (
+            set -a
+            . "$ENV_FILE"
+            set +a
+            cd "$ADAPTER_DIR"
+            exec go run ./cmd/adapter
+        ) > "$BASE_DIR/logs/adapter.log" 2>&1 &
+        ADAPTER_PID=$!
+        echo "ADAPTER=$ADAPTER_PID" >> "$PID_FILE"
+        echo "   Adapter PID: $ADAPTER_PID"
+        echo "   Logs: logs/adapter.log"
+
+        echo "   Waiting for adapter to register..."
+        sleep 3
+
+        if ! ps -p $ADAPTER_PID > /dev/null; then
+            echo "   ❌ Adapter failed to start. Last 20 lines of logs/adapter.log:"
+            tail -20 "$BASE_DIR/logs/adapter.log"
+            kill $BACKEND_PID 2>/dev/null
+            rm -f "$PID_FILE"
+            exit 1
+        fi
+        echo "   ✅ Adapter started"
+    fi
+
     # 启动前端
     echo ""
     echo "🌐 Starting frontend server..."
     cd "$BASE_DIR/src/web"
-    npm run dev > "$BASE_DIR/logs/frontend.log" 2>&1 &
+    npm run dev < /dev/null > "$BASE_DIR/logs/frontend.log" 2>&1 &
     FRONTEND_PID=$!
     echo "FRONTEND=$FRONTEND_PID" >> "$PID_FILE"
     echo "   Frontend PID: $FRONTEND_PID"
@@ -117,8 +154,9 @@ start_services() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "🌐 URLs:"
     echo "   Frontend:  http://localhost:3001/"
-    echo "   Backend:   http://localhost:3100"
+    echo "   Backend:   http://localhost:3100  (gRPC :50052)"
     echo "   API:       http://localhost:3100/api/"
+    echo "   Adapter:   gRPC :50051 (uipath_adapter)"
     echo ""
     echo "📝 Logs:"
     echo "   Backend:   tail -f logs/backend.log"

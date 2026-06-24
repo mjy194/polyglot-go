@@ -45,7 +45,7 @@ func TestServeNativeForwardsRawRequestAndResponse(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Request.Header.Set("Accept", "text/event-stream")
 
-	if err := serveNative(c, processor, "responses", "responses"); err != nil {
+	if err := serveNative(c, processor, "responses", "responses", ""); err != nil {
 		t.Fatalf("serveNative: %v", err)
 	}
 	if w.Code != http.StatusAccepted {
@@ -77,7 +77,7 @@ func TestServeNativeNoResponseReturnsNoContent(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"m"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	if err := serveNative(c, processor, "anthropic", "messages"); err != nil {
+	if err := serveNative(c, processor, "anthropic", "messages", ""); err != nil {
 		t.Fatalf("serveNative: %v", err)
 	}
 	if w.Code != http.StatusNoContent {
@@ -94,7 +94,7 @@ func TestServeNativeAdapterErrorBeforeWrite(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"m"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	err := serveNative(c, processor, "responses", "responses")
+	err := serveNative(c, processor, "responses", "responses", "")
 	if err == nil || !strings.Contains(err.Error(), "native failed") {
 		t.Fatalf("error=%v, want native failed", err)
 	}
@@ -117,7 +117,7 @@ func TestServeNativeResponseErrorBeforeWrite(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"m"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	err := serveNative(c, processor, "responses", "responses")
+	err := serveNative(c, processor, "responses", "responses", "")
 	if err == nil || !strings.Contains(err.Error(), "upstream rejected") {
 		t.Fatalf("error=%v, want upstream rejected", err)
 	}

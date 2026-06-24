@@ -9,6 +9,7 @@ const (
 	idPrefixAdminSession = "sess"
 	idPrefixProvider     = "prov"
 	idPrefixModelMapping = "map"
+	idPrefixProxy        = "proxy"
 )
 
 func newID(prefix string) string {

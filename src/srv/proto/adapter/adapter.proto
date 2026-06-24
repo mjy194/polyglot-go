@@ -371,6 +371,7 @@ message RequestContext {
   string session_id = 2;
   int64 timeout_ms = 4;
   map<string, string> metadata = 5;
+  string proxy_url = 6; // scheme://[user:pass@]host:port; empty = no outbound proxy
 }
 
 // ============================================================================

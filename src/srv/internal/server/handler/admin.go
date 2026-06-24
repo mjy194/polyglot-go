@@ -283,12 +283,115 @@ func AdminUpsertProvider(store *data.Store) gin.HandlerFunc {
 		if provider.Status == "" {
 			provider.Status = domain.StatusActive
 		}
+		if provider.ProxyStrategy == "" {
+			provider.ProxyStrategy = "failover"
+		}
 		provider, err := store.Providers().UpsertProvider(c.Request.Context(), provider)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, provider)
+	}
+}
+
+// AdminProxies lists all network proxies.
+func AdminProxies(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		proxies, err := store.Proxies().ListProxies(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, proxies)
+	}
+}
+
+// AdminUpsertProxy creates or updates a network proxy.
+func AdminUpsertProxy(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var proxy domain.Proxy
+		if err := c.ShouldBindJSON(&proxy); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if proxy.Status == "" {
+			proxy.Status = domain.StatusActive
+		}
+		proxy, err := store.Proxies().UpsertProxy(c.Request.Context(), proxy)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, proxy)
+	}
+}
+
+// AdminDeleteProxy removes a network proxy (associations are left dangling;
+// callers should clear provider↔proxy links first).
+func AdminDeleteProxy(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := store.Proxies().DeleteProxy(c.Request.Context(), c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"deleted": c.Param("id")})
+	}
+}
+
+// providerProxyView enriches an association with proxy details for the UI.
+type providerProxyView struct {
+	ProviderID string `json:"provider_id"`
+	ProxyID    string `json:"proxy_id"`
+	Priority   int    `json:"priority"`
+	Name       string `json:"name"`
+	URL        string `json:"url"`
+	Type       string `json:"type"`
+	Status     string `json:"status"`
+}
+
+// AdminListProviderProxies returns the proxies attached to a provider, enriched.
+func AdminListProviderProxies(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		providerID := c.Param("id")
+		links, err := store.Proxies().ListProviderProxies(c.Request.Context(), providerID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		byID := make(map[string]domain.Proxy, len(links))
+		if all, err := store.Proxies().ListProxies(c.Request.Context()); err == nil {
+			for _, p := range all {
+				byID[p.ID] = p
+			}
+		}
+		out := make([]providerProxyView, 0, len(links))
+		for _, l := range links {
+			v := providerProxyView{ProviderID: l.ProviderID, ProxyID: l.ProxyID, Priority: l.Priority}
+			if p, ok := byID[l.ProxyID]; ok {
+				v.Name, v.URL, v.Type, v.Status = p.Name, p.URL, p.Type, p.Status
+			}
+			out = append(out, v)
+		}
+		c.JSON(http.StatusOK, out)
+	}
+}
+
+// AdminSetProviderProxies replaces all provider↔proxy associations for a provider.
+// Body: [{"proxy_id":"...","priority":0}, ...]
+func AdminSetProviderProxies(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		providerID := c.Param("id")
+		var reqs []domain.ProviderProxy
+		if err := c.ShouldBindJSON(&reqs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := store.Proxies().SetProviderProxies(c.Request.Context(), providerID, reqs); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"provider_id": providerID, "count": len(reqs)})
 	}
 }
 

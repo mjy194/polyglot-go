@@ -39,7 +39,13 @@ func (s *Server) withNative(protocol, endpoint string, fallback gin.HandlerFunc)
 		telemetry.SetField(c, "route_mode", "native")
 		telemetry.SetField(c, "protocol", protocol)
 		telemetry.SetField(c, "endpoint", endpoint)
-		if err := serveNative(c, processor, protocol, endpoint); err != nil && !c.Writer.Written() {
+		proxyURL := ""
+		if s.proxyResolver != nil {
+			if u, err := s.proxyResolver.ResolveForName(c.Request.Context(), s.config.Backend.Provider); err == nil {
+				proxyURL = u
+			}
+		}
+		if err := serveNative(c, processor, protocol, endpoint, proxyURL); err != nil && !c.Writer.Written() {
 			c.JSON(http.StatusBadGateway, gin.H{
 				"error": gin.H{
 					"message": err.Error(),
@@ -51,7 +57,7 @@ func (s *Server) withNative(protocol, endpoint string, fallback gin.HandlerFunc)
 	}
 }
 
-func serveNative(c *gin.Context, processor adapter.NativeProcessor, protocol, endpoint string) error {
+func serveNative(c *gin.Context, processor adapter.NativeProcessor, protocol, endpoint, proxyURL string) error {
 	readSpan := telemetry.Start(c, "native.read_body", "protocol", protocol, "endpoint", endpoint)
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
@@ -71,7 +77,8 @@ func serveNative(c *gin.Context, processor adapter.NativeProcessor, protocol, en
 		Body:      body,
 		Stream:    nativeRequestIsStream(protocol, c, body),
 		Context: &pb.RequestContext{
-			UserId: contextString(c, middleware.ContextUserID),
+			UserId:   contextString(c, middleware.ContextUserID),
+			ProxyUrl: proxyURL,
 			Metadata: map[string]string{
 				"api_key_id": contextString(c, middleware.ContextAPIKeyID),
 			},

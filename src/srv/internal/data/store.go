@@ -30,6 +30,7 @@ type Store struct {
 	kvStore   KVStoreRepository
 	accounts  AccountRepository
 	providers ProviderRepository
+	proxies   ProxyRepository
 	identity  IdentityRepository
 	adapters  AdapterRepository
 	audit     AuditRepository
@@ -67,6 +68,7 @@ func Open(cfg Config) (*Store, error) {
 		kvStore:   NewGormKVStoreRepository(db),
 		accounts:  NewGormAccountRepository(db),
 		providers: NewGormProviderRepository(db),
+		proxies:   NewGormProxyRepository(db),
 		identity:  NewGormIdentityRepository(db),
 		adapters:  NewGormAdapterRepository(db),
 		audit:     NewGormAuditRepository(db),
@@ -83,6 +85,8 @@ func migrationModels() []interface{} {
 		&APIKeyRecord{},
 		&AdminSessionRecord{},
 		&ProviderRecord{},
+		&ProxyRecord{},
+		&ProviderProxyRecord{},
 		&ProviderCredentialRecord{},
 		&ModelMappingRecord{},
 		&AdapterRecord{},
@@ -155,6 +159,11 @@ func (s *Store) Accounts() AccountRepository {
 // Providers returns direct provider persistence operations.
 func (s *Store) Providers() ProviderRepository {
 	return s.providers
+}
+
+// Proxies returns network proxy persistence operations.
+func (s *Store) Proxies() ProxyRepository {
+	return s.proxies
 }
 
 // Identity returns tenant, user, role, and API key persistence operations.

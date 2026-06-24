@@ -28,7 +28,7 @@ func TestProxyForwardsOpenAIRequestWithBearerKey(t *testing.T) {
 		Upstreams: map[string]config.UpstreamConfig{
 			ProtocolOpenAI: {BaseURL: upstream.URL + "/v1", APIKey: "sk-test"},
 		},
-	})
+	}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?trace=1", strings.NewReader(`{"model":"gpt"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -65,7 +65,7 @@ func TestProxyNormalizesAPIPrefixForGeminiAndSetsGoogleKey(t *testing.T) {
 		Upstreams: map[string]config.UpstreamConfig{
 			ProtocolGemini: {URL: upstream.URL, APIKey: "gem-key"},
 		},
-	})
+	}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1beta/models/gemini-pro:generateContent", strings.NewReader(`{}`))
 	w := httptest.NewRecorder()
@@ -93,7 +93,7 @@ func TestProxyResponsesFallsBackToOpenAIUpstream(t *testing.T) {
 		Upstreams: map[string]config.UpstreamConfig{
 			ProtocolOpenAI: {URL: upstream.URL, APIKey: "sk-test"},
 		},
-	})
+	}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{}`))
 	w := httptest.NewRecorder()
@@ -119,7 +119,7 @@ func TestProxyAnthropicSetsAPIKeyAndDefaultVersion(t *testing.T) {
 		Upstreams: map[string]config.UpstreamConfig{
 			ProtocolAnthropic: {URL: upstream.URL, APIKey: "anth-key"},
 		},
-	})
+	}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
 	w := httptest.NewRecorder()

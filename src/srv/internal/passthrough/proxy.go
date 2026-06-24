@@ -1,14 +1,17 @@
 package passthrough
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"polyglot/internal/config"
+	"polyglot/internal/proxy"
 )
 
 const (
@@ -18,23 +21,49 @@ const (
 	ProtocolGemini    = "gemini"
 )
 
+// ProxyResolver resolves outbound proxy candidates for a protocol from the
+// provider↔proxy association store. Implemented by the server using data.Store.
+type ProxyResolver interface {
+	// Resolve returns proxy candidates and the provider's selection strategy.
+	// Empty candidates (no error) means "no proxy configured".
+	Resolve(ctx context.Context, protocol string) (candidates []proxy.ResolvedProxy, strategy string, err error)
+}
+
 // Proxy forwards native provider protocol requests without converting through
 // the universal adapter format.
 type Proxy struct {
-	enabled bool
-	cfg     config.PassthroughConfig
-	client  *http.Client
+	enabled   bool
+	cfg       config.PassthroughConfig
+	client    *http.Client // default (no-proxy) client
+	timeout   time.Duration
+	resolver  ProxyResolver
+	selectors sync.Map // "protocol\x00strategy" -> proxy.Selector
 }
 
 // New creates a passthrough proxy. It is inert unless cfg.Enabled is true.
-func New(cfg config.PassthroughConfig) *Proxy {
+// resolver may be nil to disable programmatic proxy support.
+func New(cfg config.PassthroughConfig, resolver ProxyResolver) *Proxy {
+	timeout := defaultTimeout(cfg)
 	return &Proxy{
-		enabled: cfg.Enabled,
-		cfg:     cfg,
+		enabled:  cfg.Enabled,
+		cfg:      cfg,
+		timeout:  timeout,
+		resolver: resolver,
 		client: &http.Client{
-			Timeout: defaultTimeout(cfg),
+			Timeout: timeout,
 		},
 	}
+}
+
+// selectorFor returns a cached Selector for the protocol/strategy pair.
+func (p *Proxy) selectorFor(protocol, strategy string) proxy.Selector {
+	key := protocol + "\x00" + strategy
+	if v, ok := p.selectors.Load(key); ok {
+		return v.(proxy.Selector)
+	}
+	sel := proxy.NewSelector(strategy)
+	actual, _ := p.selectors.LoadOrStore(key, sel)
+	return actual.(proxy.Selector)
 }
 
 // Enabled reports whether a protocol has a usable direct upstream.
@@ -67,9 +96,29 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, protocol strin
 	applyConfiguredHeaders(req.Header, upstream.Headers)
 	applyAuth(req, protocol, upstream)
 
-	resp, err := p.client.Do(req)
+	// Resolve an outbound proxy for this protocol's provider (if any).
+	client := p.client
+	var pickedID string
+	var pickedSel proxy.Selector
+	if p.resolver != nil {
+		if cands, strategy, rerr := p.resolver.Resolve(r.Context(), protocol); rerr == nil && len(cands) > 0 {
+			sel := p.selectorFor(protocol, strategy)
+			if pick, ok := sel.Pick(cands); ok {
+				client = proxy.ClientFor(pick.URL, p.timeout)
+				pickedID, pickedSel = pick.ID, sel
+			}
+		}
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
+		if pickedSel != nil {
+			pickedSel.MarkResult(pickedID, false) // advance failover for next request
+		}
 		return err
+	}
+	if pickedSel != nil {
+		pickedSel.MarkResult(pickedID, true)
 	}
 	defer resp.Body.Close()
 

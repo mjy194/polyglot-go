@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,7 +14,9 @@ import (
 	"polyglot/internal/account"
 	"polyglot/internal/config"
 	"polyglot/internal/data"
+	"polyglot/internal/domain"
 	"polyglot/internal/passthrough"
+	"polyglot/internal/proxy"
 	"polyglot/internal/storage"
 	"polyglot/pkg/logger"
 	pb "polyglot/proto/adapter"
@@ -30,6 +33,7 @@ type Server struct {
 	storageServer  *storage.UiPathStorageService
 	accountService *account.AccountPoolService
 	passthrough    *passthrough.Proxy
+	proxyResolver  *storeProxyResolver
 }
 
 // New 创建服务器实例
@@ -51,7 +55,8 @@ func New(cfg *config.Config, log logger.Logger) (*Server, error) {
 	if cfg.Backend.Provider == "passthrough" {
 		passthroughCfg.Enabled = true
 	}
-	passthroughProxy := passthrough.New(passthroughCfg)
+	proxyResolver := &storeProxyResolver{store: dataStore}
+	passthroughProxy := passthrough.New(passthroughCfg, proxyResolver)
 
 	// 创建 gRPC server
 	grpcServer := grpc.NewServer()
@@ -67,6 +72,7 @@ func New(cfg *config.Config, log logger.Logger) (*Server, error) {
 		storageServer:  storageServer,
 		accountService: accountService,
 		passthrough:    passthroughProxy,
+		proxyResolver:  proxyResolver,
 	}
 
 	// 设置路由
@@ -174,4 +180,113 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 
 	return s.srv.Shutdown(ctx)
+}
+
+// storeProxyResolver resolves outbound proxy candidates for a passthrough
+// protocol by mapping protocol → active provider (by Type) → its M:N proxies.
+// responses falls back to the openai provider's proxies (mirroring upstream
+// resolution). Returns empty candidates when no provider/proxy is configured.
+type storeProxyResolver struct {
+	store      *data.Store
+	selectors  sync.Map // key (e.g. protocol or provider name) + strategy → proxy.Selector
+}
+
+// selectorFor returns a cached Selector keyed by (key, strategy).
+func (r *storeProxyResolver) selectorFor(key, strategy string) proxy.Selector {
+	k := key + "\x00" + strategy
+	if v, ok := r.selectors.Load(k); ok {
+		return v.(proxy.Selector)
+	}
+	sel := proxy.NewSelector(strategy)
+	actual, _ := r.selectors.LoadOrStore(k, sel)
+	return actual.(proxy.Selector)
+}
+
+// gatherCandidates returns the proxy candidates + strategy for a provider.
+func (r *storeProxyResolver) gatherCandidates(ctx context.Context, prov *domain.Provider) ([]proxy.ResolvedProxy, string, error) {
+	links, err := r.store.Proxies().ListProviderProxies(ctx, prov.ID)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(links) == 0 {
+		return nil, prov.ProxyStrategy, nil
+	}
+	all, err := r.store.Proxies().ListProxies(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	byID := make(map[string]domain.Proxy, len(all))
+	for _, pr := range all {
+		if pr.Status == domain.StatusActive {
+			byID[pr.ID] = pr
+		}
+	}
+	candidates := make([]proxy.ResolvedProxy, 0, len(links))
+	for _, l := range links {
+		if pr, ok := byID[l.ProxyID]; ok {
+			candidates = append(candidates, proxy.ResolvedProxy{
+				ID:       pr.ID,
+				URL:      pr.URL,
+				Priority: l.Priority,
+			})
+		}
+	}
+	return candidates, prov.ProxyStrategy, nil
+}
+
+func (r *storeProxyResolver) Resolve(ctx context.Context, protocol string) ([]proxy.ResolvedProxy, string, error) {
+	matchType := protocol
+	if protocol == passthrough.ProtocolResponses {
+		matchType = passthrough.ProtocolOpenAI
+	}
+
+	providers, err := r.store.Providers().ListProviders(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	var prov *domain.Provider
+	for i := range providers {
+		if providers[i].Status == domain.StatusActive && providers[i].Type == matchType {
+			prov = &providers[i]
+			break
+		}
+	}
+	if prov == nil {
+		return nil, "", nil
+	}
+	return r.gatherCandidates(ctx, prov)
+}
+
+// ResolveForName picks one proxy URL for a provider matched by Name (used by the
+// adapter/native path, which keys off config.Backend_provider). Returns "" when
+// no provider or no proxies are configured. Selection honours the provider's
+// strategy; failover advances across requests via the cached selector.
+func (r *storeProxyResolver) ResolveForName(ctx context.Context, name string) (string, error) {
+	providers, err := r.store.Providers().ListProviders(ctx)
+	if err != nil {
+		return "", err
+	}
+	var prov *domain.Provider
+	for i := range providers {
+		if providers[i].Status == domain.StatusActive && providers[i].Name == name {
+			prov = &providers[i]
+			break
+		}
+	}
+	if prov == nil {
+		return "", nil
+	}
+	candidates, strategy, err := r.gatherCandidates(ctx, prov)
+	if err != nil {
+		return "", err
+	}
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	sel := r.selectorFor("name:"+name, strategy)
+	pick, ok := sel.Pick(candidates)
+	if !ok {
+		return "", nil
+	}
+	return pick.URL, nil
 }

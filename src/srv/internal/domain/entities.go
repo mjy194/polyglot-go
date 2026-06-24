@@ -68,8 +68,28 @@ type Provider struct {
 	AuthType       string    `json:"auth_type"`
 	DefaultHeaders string    `json:"default_headers"`
 	Status         string    `json:"status"`
+	ProxyStrategy  string    `json:"proxy_strategy"` // failover|round_robin|random
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// Proxy is a network proxy assignable to providers in a many-to-many relationship.
+type Proxy struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	URL       string    `json:"url"`        // scheme://[user:pass@]host:port
+	Type      string    `json:"type"`       // http|https|socks5
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ProviderProxy is one edge of the provider↔proxy many-to-many relationship.
+type ProviderProxy struct {
+	ProviderID string    `json:"provider_id"`
+	ProxyID    string    `json:"proxy_id"`
+	Priority   int       `json:"priority"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type ProviderCredential struct {

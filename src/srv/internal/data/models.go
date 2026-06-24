@@ -70,8 +70,28 @@ type ProviderRecord struct {
 	AuthType       string `gorm:"size:64"`
 	DefaultHeaders string `gorm:"type:text;not null;default:'{}'"`
 	Status         string `gorm:"size:32;not null;default:active"`
+	ProxyStrategy  string `gorm:"size:16;not null;default:failover"` // failover|round_robin|random
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+// Proxy is a network proxy (HTTP/HTTPS/SOCKS5) assignable to providers (M:N).
+type ProxyRecord struct {
+	ID        string `gorm:"primaryKey;size:64"`
+	Name      string `gorm:"size:128;uniqueIndex;not null"`
+	URL       string `gorm:"column:url;size:1024;not null"` // scheme://[user:pass@]host:port
+	Type      string `gorm:"size:16;not null"`              // http|https|socks5
+	Status    string `gorm:"size:32;not null;default:active"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// ProviderProxy is the M:N association between a provider and a proxy.
+type ProviderProxyRecord struct {
+	ProviderID string `gorm:"primaryKey;size:64"`
+	ProxyID    string `gorm:"primaryKey;size:64"`
+	Priority   int    `gorm:"not null;default:0"` // failover ordering, lower = higher priority
+	CreatedAt  time.Time
 }
 
 // ProviderCredential stores encrypted direct-provider credentials.
@@ -200,6 +220,8 @@ func (APIKeyRecord) TableName() string             { return "api_keys" }
 func (AdminSessionRecord) TableName() string       { return "admin_sessions" }
 func (ProviderRecord) TableName() string           { return "providers" }
 func (ProviderCredentialRecord) TableName() string { return "provider_credentials" }
+func (ProxyRecord) TableName() string              { return "proxies" }
+func (ProviderProxyRecord) TableName() string      { return "provider_proxies" }
 func (ModelMappingRecord) TableName() string       { return "model_mappings" }
 func (AdapterRecord) TableName() string            { return "adapters" }
 func (AdapterInstanceRecord) TableName() string    { return "adapter_instances" }
@@ -307,6 +329,38 @@ func mappingToRecord(mapping domain.ModelMapping) ModelMappingRecord {
 
 func mappingFromRecord(record ModelMappingRecord) domain.ModelMapping {
 	return domain.ModelMapping(record)
+}
+
+func proxyToRecord(proxy domain.Proxy) ProxyRecord {
+	return ProxyRecord(proxy)
+}
+
+func proxyFromRecord(record ProxyRecord) domain.Proxy {
+	return domain.Proxy(record)
+}
+
+func proxiesFromRecords(records []ProxyRecord) []domain.Proxy {
+	proxies := make([]domain.Proxy, len(records))
+	for i, record := range records {
+		proxies[i] = proxyFromRecord(record)
+	}
+	return proxies
+}
+
+func providerProxyToRecord(pp domain.ProviderProxy) ProviderProxyRecord {
+	return ProviderProxyRecord(pp)
+}
+
+func providerProxyFromRecord(record ProviderProxyRecord) domain.ProviderProxy {
+	return domain.ProviderProxy(record)
+}
+
+func providerProxiesFromRecords(records []ProviderProxyRecord) []domain.ProviderProxy {
+	out := make([]domain.ProviderProxy, len(records))
+	for i, record := range records {
+		out[i] = providerProxyFromRecord(record)
+	}
+	return out
 }
 
 func mappingsFromRecords(records []ModelMappingRecord) []domain.ModelMapping {

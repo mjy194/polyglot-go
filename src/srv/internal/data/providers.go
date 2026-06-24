@@ -42,6 +42,7 @@ func (r *gormProviderRepository) UpsertProvider(ctx context.Context, provider do
 			"auth_type",
 			"default_headers",
 			"status",
+			"proxy_strategy",
 			"updated_at",
 		}),
 	}).Create(&record).Error

@@ -35,7 +35,7 @@ func TestResponsesNonStreamInputString(t *testing.T) {
 		chunkMsg("Hi there", 0, true),
 		completionMsg("stop", 10, 20),
 	}}
-	r := newResponsesRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newResponsesRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 
 	w := doResponsesRequest(t, r, `{"model":"gpt-4o","input":"say hi"}`)
 	if w.Code != http.StatusOK {
@@ -62,7 +62,7 @@ func TestResponsesNonStreamInputItems(t *testing.T) {
 		chunkMsg("Hello", 0, true),
 		completionMsg("stop", 1, 2),
 	}}
-	r := newResponsesRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newResponsesRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 	body := `{"model":"gpt-4o","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`
 	w := doResponsesRequest(t, r, body)
 	if w.Code != http.StatusOK {
@@ -83,7 +83,7 @@ func TestResponsesStreamEvents(t *testing.T) {
 		chunkMsg(" there", 0, true),
 		completionMsg("stop", 5, 8),
 	}}
-	r := newResponsesRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newResponsesRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 	body := `{"model":"gpt-4o","input":"hi","stream":true}`
 	w := doResponsesRequest(t, r, body)
 	s := w.Body.String()
@@ -108,7 +108,7 @@ func TestResponsesStreamEvents(t *testing.T) {
 }
 
 func TestResponsesNoAdapterReturnsServiceUnavailable(t *testing.T) {
-	r := newResponsesRouter(func() (adapter.StreamProcessor, bool) { return nil, false })
+	r := newResponsesRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return nil, false })
 	w := doResponsesRequest(t, r, `{"model":"gpt-4o","input":"hi"}`)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status=%d, want 503", w.Code)
@@ -119,7 +119,7 @@ func TestResponsesStreamErrorDoesNotEmitCompletion(t *testing.T) {
 	fp := fakeProcessor{msgs: []*pb.UniversalResponse{
 		{Response: &pb.UniversalResponse_Error{Error: &pb.ErrorResponse{Message: "boom", Type: "server_error"}}},
 	}}
-	r := newResponsesRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newResponsesRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 	w := doResponsesRequest(t, r, `{"model":"gpt-4o","input":"hi","stream":true}`)
 	s := w.Body.String()
 	if !strings.Contains(s, `"message":"boom"`) {
@@ -135,7 +135,7 @@ func TestResponsesStreamFunctionCallEvents(t *testing.T) {
 		toolCallMsg("call_1", "lookup", `{"city":"SF"}`, 0),
 		completionMsg("tool_calls", 3, 5),
 	}}
-	r := newResponsesRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newResponsesRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 	w := doResponsesRequest(t, r, `{"model":"gpt-4o","input":"hi","stream":true}`)
 	s := w.Body.String()
 

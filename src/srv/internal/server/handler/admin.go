@@ -15,6 +15,7 @@ import (
 	"polyglot/internal/data"
 	"polyglot/internal/domain"
 	proxypkg "polyglot/internal/proxy"
+	"polyglot/internal/server/middleware"
 )
 
 // AdminStats returns request statistics from persisted request logs.
@@ -172,7 +173,9 @@ func AdminUserRoles(store *data.Store) gin.HandlerFunc {
 
 func AdminAPIKeys(store *data.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		keys, err := store.Identity().ListAPIKeys(c.Request.Context())
+		// API keys are the user's own config — scope to the logged-in user.
+		userID := c.GetString(middleware.ContextUserID)
+		keys, err := store.Identity().ListAPIKeysByUser(c.Request.Context(), userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -197,6 +200,8 @@ func AdminUpsertAPIKey(store *data.Store) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		// Force ownership: a key is always created under the logged-in user.
+		key.UserID = c.GetString(middleware.ContextUserID)
 		if key.Status == "" {
 			key.Status = domain.StatusActive
 		}
@@ -206,6 +211,17 @@ func AdminUpsertAPIKey(store *data.Store) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, apiKeyResponseFromDomain(key))
+	}
+}
+
+// AdminDeleteAPIKey removes one of the current user's own API keys.
+func AdminDeleteAPIKey(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := store.Identity().DeleteAPIKey(c.Request.Context(), c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"deleted": c.Param("id")})
 	}
 }
 
@@ -388,6 +404,17 @@ func AdminProviderHealthHourly(store *data.Store) gin.HandlerFunc {
 	}
 }
 
+// AdminDeleteProvider removes a provider and its child associations.
+func AdminDeleteProvider(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := store.Providers().DeleteProvider(c.Request.Context(), c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"deleted": c.Param("id")})
+	}
+}
+
 // AdminListProviderProxies returns the proxies attached to a provider, enriched.
 func AdminListProviderProxies(store *data.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -447,12 +474,12 @@ func AdminTestProxy(store *data.Store) gin.HandlerFunc {
 		latency := time.Since(start).Milliseconds()
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
-				"success":     false,
-				"proxy":       proxy.Name,
-				"target":      target,
-				"latency_ms":  latency,
-				"error":       err.Error(),
-				"exit_ip":     "",
+				"success":    false,
+				"proxy":      proxy.Name,
+				"target":     target,
+				"latency_ms": latency,
+				"error":      err.Error(),
+				"exit_ip":    "",
 			})
 			return
 		}
@@ -658,4 +685,141 @@ func parseTimeQuery(raw string) time.Time {
 		return time.Time{}
 	}
 	return t
+}
+
+// ---- Groups (access/billing tier between users/keys and providers) ----
+
+func AdminGroups(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		groups, err := store.Groups().ListGroups(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, groups)
+	}
+}
+
+func AdminUpsertGroup(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var group domain.Group
+		if err := c.ShouldBindJSON(&group); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		group, err := store.Groups().UpsertGroup(c.Request.Context(), group)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, group)
+	}
+}
+
+func AdminDeleteGroup(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := store.Groups().DeleteGroup(c.Request.Context(), c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"deleted": c.Param("id")})
+	}
+}
+
+// groupProviderView enriches a provider association with provider details.
+type groupProviderView struct {
+	GroupID    string `json:"group_id"`
+	ProviderID string `json:"provider_id"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Status     string `json:"status"`
+	Priority   int    `json:"priority"`
+}
+
+func AdminListGroupProviders(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		links, err := store.Groups().ListGroupProviders(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		all, _ := store.Providers().ListProviders(c.Request.Context())
+		byID := make(map[string]domain.Provider, len(all))
+		for _, p := range all {
+			byID[p.ID] = p
+		}
+		out := make([]groupProviderView, 0, len(links))
+		for _, l := range links {
+			v := groupProviderView{GroupID: l.GroupID, ProviderID: l.ProviderID, Priority: l.Priority}
+			if p, ok := byID[l.ProviderID]; ok {
+				v.Name, v.Type, v.Status = p.Name, p.Type, p.Status
+			}
+			out = append(out, v)
+		}
+		c.JSON(http.StatusOK, out)
+	}
+}
+
+func AdminSetGroupProviders(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		groupID := c.Param("id")
+		var reqs []domain.GroupProvider
+		if err := c.ShouldBindJSON(&reqs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := store.Groups().SetGroupProviders(c.Request.Context(), groupID, reqs); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"group_id": groupID, "count": len(reqs)})
+	}
+}
+
+// providerGroupView enriches a group association with the group's name/ratio.
+type providerGroupView struct {
+	GroupID  string  `json:"group_id"`
+	Name     string  `json:"name"`
+	Ratio    float64 `json:"ratio"`
+	Priority int     `json:"priority"`
+}
+
+func AdminListProviderGroups(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		links, err := store.Groups().ListProviderGroups(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		all, _ := store.Groups().ListGroups(c.Request.Context())
+		byID := make(map[string]domain.Group, len(all))
+		for _, g := range all {
+			byID[g.ID] = g
+		}
+		out := make([]providerGroupView, 0, len(links))
+		for _, l := range links {
+			v := providerGroupView{GroupID: l.GroupID, Priority: l.Priority}
+			if g, ok := byID[l.GroupID]; ok {
+				v.Name, v.Ratio = g.Name, g.Ratio
+			}
+			out = append(out, v)
+		}
+		c.JSON(http.StatusOK, out)
+	}
+}
+
+func AdminSetProviderGroups(store *data.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		providerID := c.Param("id")
+		var reqs []domain.GroupProvider
+		if err := c.ShouldBindJSON(&reqs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := store.Groups().SetProviderGroups(c.Request.Context(), providerID, reqs); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"provider_id": providerID, "count": len(reqs)})
+	}
 }

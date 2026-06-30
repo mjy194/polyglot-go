@@ -42,7 +42,7 @@ func Responses(resolve StreamProcessorResolver) gin.HandlerFunc {
 		validateSpan.End()
 
 		// 3. 解析 adapter
-		processor, ok := resolve()
+		processor, ok := resolve(c)
 		if !ok {
 			responsesError(c, http.StatusServiceUnavailable, "server_error",
 				"no adapter registered for this backend; service unavailable")

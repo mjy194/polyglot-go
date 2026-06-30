@@ -63,7 +63,7 @@ func TestNonStreamTextResponse(t *testing.T) {
 		chunkMsg("Hello world", 0, true),
 		completionMsg("stop", 10, 20),
 	}}
-	r := newTestRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newTestRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 
 	w := doRequest(t, r, `{"model":"claude-opus-4-8","max_tokens":50,"messages":[{"role":"user","content":"hi"}]}`)
 	if w.Code != http.StatusOK {
@@ -96,7 +96,7 @@ func TestNonStreamStopReasonMapped(t *testing.T) {
 		chunkMsg("x", 0, true),
 		completionMsg("length", 1, 2),
 	}}
-	r := newTestRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newTestRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 	w := doRequest(t, r, `{"model":"m","max_tokens":5,"messages":[{"role":"user","content":"hi"}]}`)
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
@@ -111,7 +111,7 @@ func TestStreamTextSSE(t *testing.T) {
 		chunkMsg(" world", 0, true),
 		completionMsg("stop", 10, 20),
 	}}
-	r := newTestRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newTestRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 
 	w := doRequest(t, r, `{"model":"claude-opus-4-8","max_tokens":50,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	s := w.Body.String()
@@ -147,7 +147,7 @@ func TestStreamToolUseSSE(t *testing.T) {
 		toolCallMsg("toolu_1", "get_weather", `{"location":"SF"}`, 0),
 		completionMsg("tool_calls", 5, 8),
 	}}
-	r := newTestRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newTestRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 
 	w := doRequest(t, r, `{"model":"claude-opus-4-8","max_tokens":50,"stream":true,"messages":[{"role":"user","content":"weather?"}]}`)
 	s := w.Body.String()
@@ -171,7 +171,7 @@ func TestStreamToolUseSSE(t *testing.T) {
 }
 
 func TestNoAdapterReturnsServiceUnavailable(t *testing.T) {
-	r := newTestRouter(func() (adapter.StreamProcessor, bool) { return nil, false })
+	r := newTestRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return nil, false })
 	w := doRequest(t, r, `{"model":"m","max_tokens":5,"messages":[{"role":"user","content":"hi"}]}`)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status=%d, want 503 (无 adapter 时不应返回 mock)，body=%s", w.Code, w.Body.String())
@@ -179,7 +179,7 @@ func TestNoAdapterReturnsServiceUnavailable(t *testing.T) {
 }
 
 func TestInvalidRequestReturns400(t *testing.T) {
-	r := newTestRouter(func() (adapter.StreamProcessor, bool) { return fakeProcessor{}, true })
+	r := newTestRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fakeProcessor{}, true })
 	// 缺 max_tokens
 	w := doRequest(t, r, `{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
 	if w.Code != http.StatusBadRequest {

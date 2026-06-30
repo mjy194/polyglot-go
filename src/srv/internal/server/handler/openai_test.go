@@ -35,7 +35,7 @@ func TestOpenAINonStreamText(t *testing.T) {
 		chunkMsg("Hello world", 0, true),
 		completionMsg("stop", 10, 20),
 	}}
-	r := newOpenAIRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newOpenAIRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 
 	w := doOpenAIRequest(t, r, `{"model":"gpt-4","max_tokens":50,"messages":[{"role":"user","content":"hi"}]}`)
 	if w.Code != http.StatusOK {
@@ -68,7 +68,7 @@ func TestOpenAINonStreamFinishReasonMapped(t *testing.T) {
 		chunkMsg("x", 0, true),
 		completionMsg("max_tokens", 1, 2),
 	}}
-	r := newOpenAIRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newOpenAIRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 	w := doOpenAIRequest(t, r, `{"model":"gpt-4","max_tokens":5,"messages":[{"role":"user","content":"hi"}]}`)
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
@@ -84,7 +84,7 @@ func TestOpenAIStreamTextSSE(t *testing.T) {
 		chunkMsg(" there", 0, true),
 		completionMsg("stop", 5, 8),
 	}}
-	r := newOpenAIRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newOpenAIRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 
 	w := doOpenAIRequest(t, r, `{"model":"gpt-4","max_tokens":50,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	s := w.Body.String()
@@ -104,7 +104,7 @@ func TestOpenAIStreamTextSSE(t *testing.T) {
 }
 
 func TestOpenAINoAdapterReturnsServiceUnavailable(t *testing.T) {
-	r := newOpenAIRouter(func() (adapter.StreamProcessor, bool) { return nil, false })
+	r := newOpenAIRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return nil, false })
 	w := doOpenAIRequest(t, r, `{"model":"gpt-4","max_tokens":5,"messages":[{"role":"user","content":"hi"}]}`)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status=%d, want 503 (无 adapter 时不应返回 mock)", w.Code)
@@ -116,7 +116,7 @@ func TestOpenAIStreamToolCallSSE(t *testing.T) {
 		toolCallMsg("call_1", "lookup", `{"city":"SF"}`, 0),
 		completionMsg("tool_calls", 3, 5),
 	}}
-	r := newOpenAIRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newOpenAIRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 
 	w := doOpenAIRequest(t, r, `{"model":"gpt-4","max_tokens":50,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	s := w.Body.String()

@@ -27,7 +27,7 @@ func TestProtocolNonStreamCorrectnessMatrix(t *testing.T) {
 		chunkMsg("matrix text", 0, true),
 		completionMsg("stop", 4, 6),
 	}}
-	resolve := func() (adapter.StreamProcessor, bool) { return fp, true }
+	resolve := func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true }
 
 	runProtocolMatrix(t, []protocolMatrixCase{
 		{
@@ -99,7 +99,7 @@ func TestProtocolStreamCorrectnessMatrix(t *testing.T) {
 		chunkMsg(" stream", 0, true),
 		completionMsg("max_tokens", 3, 7),
 	}}
-	resolve := func() (adapter.StreamProcessor, bool) { return fp, true }
+	resolve := func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true }
 
 	runProtocolMatrix(t, []protocolMatrixCase{
 		{
@@ -165,7 +165,7 @@ func TestProtocolStreamCorrectnessMatrix(t *testing.T) {
 }
 
 func TestProtocolValidationCorrectnessMatrix(t *testing.T) {
-	resolve := func() (adapter.StreamProcessor, bool) { return fakeProcessor{}, true }
+	resolve := func(c *gin.Context) (adapter.StreamProcessor, bool) { return fakeProcessor{}, true }
 
 	runProtocolMatrix(t, []protocolMatrixCase{
 		{
@@ -217,7 +217,7 @@ func TestProtocolValidationCorrectnessMatrix(t *testing.T) {
 
 func TestProtocolAdapterErrorCorrectnessMatrix(t *testing.T) {
 	fp := fakeProcessor{err: errors.New("adapter failed")}
-	resolve := func() (adapter.StreamProcessor, bool) { return fp, true }
+	resolve := func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true }
 
 	runProtocolMatrix(t, []protocolMatrixCase{
 		{
@@ -268,7 +268,7 @@ func TestProtocolAdapterErrorCorrectnessMatrix(t *testing.T) {
 }
 
 func TestProtocolNoAdapterCorrectnessMatrix(t *testing.T) {
-	resolve := func() (adapter.StreamProcessor, bool) { return nil, false }
+	resolve := func(c *gin.Context) (adapter.StreamProcessor, bool) { return nil, false }
 
 	runProtocolMatrix(t, []protocolMatrixCase{
 		{

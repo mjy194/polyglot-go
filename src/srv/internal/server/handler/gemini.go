@@ -41,7 +41,7 @@ func GeminiGenerateContent(resolve StreamProcessorResolver) gin.HandlerFunc {
 		validateSpan.End()
 
 		// 3. 解析 adapter（动态寻址）
-		processor, ok := resolve()
+		processor, ok := resolve(c)
 		if !ok {
 			geminiError(c, http.StatusServiceUnavailable, "UNAVAILABLE",
 				"no adapter registered for this backend; service unavailable")

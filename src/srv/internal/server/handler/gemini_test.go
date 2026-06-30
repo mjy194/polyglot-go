@@ -41,7 +41,7 @@ func TestGeminiNonStreamText(t *testing.T) {
 		chunkMsg("Hi there", 0, true),
 		completionMsg("stop", 10, 20),
 	}}
-	r := newGeminiRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newGeminiRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 
 	w := doGeminiRequest(t, r, geminiBody, "")
 	if w.Code != http.StatusOK {
@@ -70,7 +70,7 @@ func TestGeminiNonStreamMergesChunks(t *testing.T) {
 		chunkMsg(" world", 0, true),
 		completionMsg("stop", 1, 2),
 	}}
-	r := newGeminiRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newGeminiRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 	w := doGeminiRequest(t, r, geminiBody, "")
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
@@ -86,7 +86,7 @@ func TestGeminiStreamTextSSE(t *testing.T) {
 		chunkMsg(" there", 0, true),
 		completionMsg("max_tokens", 5, 8),
 	}}
-	r := newGeminiRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newGeminiRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 
 	w := doGeminiRequest(t, r, geminiBody, "alt=sse")
 	s := w.Body.String()
@@ -98,7 +98,7 @@ func TestGeminiStreamTextSSE(t *testing.T) {
 }
 
 func TestGeminiNoAdapterReturnsServiceUnavailable(t *testing.T) {
-	r := newGeminiRouter(func() (adapter.StreamProcessor, bool) { return nil, false })
+	r := newGeminiRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return nil, false })
 	w := doGeminiRequest(t, r, geminiBody, "")
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status=%d, want 503 (无 adapter 时不应返回 mock)", w.Code)
@@ -109,7 +109,7 @@ func TestGeminiStreamErrorDoesNotEmitFinalStop(t *testing.T) {
 	fp := fakeProcessor{msgs: []*pb.UniversalResponse{
 		{Response: &pb.UniversalResponse_Error{Error: &pb.ErrorResponse{Message: "boom", Type: "server_error"}}},
 	}}
-	r := newGeminiRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newGeminiRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 	w := doGeminiRequest(t, r, geminiBody, "alt=sse")
 	s := w.Body.String()
 	if !strings.Contains(s, `"message":"boom"`) {
@@ -125,7 +125,7 @@ func TestGeminiStreamFunctionCallSSE(t *testing.T) {
 		toolCallMsg("call_1", "lookup", `{"city":"SF"}`, 0),
 		completionMsg("tool_calls", 3, 5),
 	}}
-	r := newGeminiRouter(func() (adapter.StreamProcessor, bool) { return fp, true })
+	r := newGeminiRouter(func(c *gin.Context) (adapter.StreamProcessor, bool) { return fp, true })
 	w := doGeminiRequest(t, r, geminiBody, "alt=sse")
 	s := w.Body.String()
 

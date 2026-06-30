@@ -42,7 +42,7 @@ func OpenAIChatCompletions(resolve StreamProcessorResolver) gin.HandlerFunc {
 		validateSpan.End()
 
 		// 3. 解析 adapter（动态寻址）
-		processor, ok := resolve()
+		processor, ok := resolve(c)
 		if !ok {
 			c.JSON(http.StatusServiceUnavailable, protocol.NewOpenAIError(
 				"no adapter registered for this backend; service unavailable", "api_error"))

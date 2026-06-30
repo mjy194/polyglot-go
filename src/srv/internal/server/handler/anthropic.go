@@ -18,7 +18,7 @@ import (
 // StreamProcessorResolver 按 provider 解析出可用的 adapter 流式处理器。
 // 动态自注册：adapter 启动时通过 RegisterAccountSource 上报 CallbackAddr，
 // 主框架据此建立客户端；若该 provider 尚无 adapter 注册，ok=false（调用方返回 503）。
-type StreamProcessorResolver func() (adapter.StreamProcessor, bool)
+type StreamProcessorResolver func(c *gin.Context) (adapter.StreamProcessor, bool)
 
 // AnthropicMessages Anthropic Messages API handler。
 //
@@ -48,7 +48,7 @@ func AnthropicMessages(resolve StreamProcessorResolver) gin.HandlerFunc {
 		validateSpan.End()
 
 		// 3. 解析 adapter（按 provider 动态寻址）
-		processor, ok := resolve()
+		processor, ok := resolve(c)
 		if !ok {
 			anthropicError(c, http.StatusServiceUnavailable, "api_error",
 				"no adapter registered for this backend; service unavailable")

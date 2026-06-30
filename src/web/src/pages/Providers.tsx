@@ -1,12 +1,18 @@
-import { useEffect, useState } from 'react';
-import { App, Form, Input, Select, Space, Switch, Tag, Tooltip } from 'antd';
+import { useEffect, useRef, useState } from 'react';
+import { App, Form, Input, Popconfirm, Select, Space, Switch, Tag, Tooltip } from 'antd';
 import {
+  deleteProvider,
   fetchProviderHealthHourly,
+  listGroups,
+  listProviderModelMappings,
+  listProviderGroups,
   listProviderProxies,
   listProviders,
   listProxies,
+  setProviderGroups,
   setProviderProxies,
   upsertProvider,
+  upsertProviderModelMapping,
   type HealthBucket,
 } from '../api/client';
 import type { Provider } from '../api/types';
@@ -31,7 +37,9 @@ const STRATEGIES = [
 function Providers() {
   const { message } = App.useApp();
   const { data: allProxies } = useFetch(listProxies, []);
+  const { data: allGroups } = useFetch(listGroups, []);
   const proxyOptions = (allProxies || []).map((p) => ({ value: p.id, label: p.name }));
+  const groupOptions = (allGroups || []).map((g) => ({ value: g.id, label: g.name }));
 
   const toggleStatus = async (provider: Provider, active: boolean) => {
     try {
@@ -43,6 +51,19 @@ function Providers() {
     }
   };
 
+  const remove = async (provider: Provider) => {
+    try {
+      await deleteProvider(provider.id);
+      message.success('已删除');
+      crud.reload();
+    } catch (e: any) {
+      message.error(e?.response?.data?.error || e?.message || '删除失败');
+    }
+  };
+
+  // 复制时暂存源的模型映射，保存新 provider 后一并复制过去。
+  const copyMappingsRef = useRef<{ from_model: string; to_model: string }[] | null>(null);
+
   const crud = useCrud<Provider>({
     list: listProviders,
     save: async (values: any) => {
@@ -53,6 +74,20 @@ function Providers() {
         saved.id,
         ids.map((id, i) => ({ proxy_id: id, priority: i })),
       );
+      const groupIds: string[] = values.group_ids || [];
+      await setProviderGroups(
+        saved.id,
+        groupIds.map((id, i) => ({ group_id: id, priority: i })),
+      );
+      // 复制时带上源 provider 的模型映射。
+      if (copyMappingsRef.current) {
+        await Promise.all(
+          copyMappingsRef.current.map((m) =>
+            upsertProviderModelMapping(saved.id, { from_model: m.from_model, to_model: m.to_model }),
+          ),
+        );
+        copyMappingsRef.current = null;
+      }
       return saved;
     },
     deps: [],
@@ -61,10 +96,17 @@ function Providers() {
 
   // 编辑时把已关联的代理 seed 进表单。
   const openEdit = async (row: Provider) => {
-    crud.openEdit(row);
+    copyMappingsRef.current = null; // 编辑非复制，清掉复制暂存
+    await crud.openEdit(row);
     try {
-      const links = await listProviderProxies(row.id); // 已按 priority ASC
-      crud.form.setFieldsValue({ proxy_ids: links.map((l) => l.proxy_id) });
+      const [proxyLinks, groupLinks] = await Promise.all([
+        listProviderProxies(row.id), // 已按 priority ASC
+        listProviderGroups(row.id),
+      ]);
+      crud.form.setFieldsValue({
+        proxy_ids: proxyLinks.map((l) => l.proxy_id),
+        group_ids: groupLinks.map((l) => l.group_id),
+      });
     } catch {
       /* ignore */
     }
@@ -85,14 +127,34 @@ function Providers() {
       status: row.status || 'active',
     });
     try {
-      const links = await listProviderProxies(row.id);
-      crud.form.setFieldsValue({ proxy_ids: links.map((l) => l.proxy_id) });
+      const [proxyLinks, groupLinks, mappings] = await Promise.all([
+        listProviderProxies(row.id),
+        listProviderGroups(row.id),
+        listProviderModelMappings(row.id),
+      ]);
+      crud.form.setFieldsValue({
+        proxy_ids: proxyLinks.map((l) => l.proxy_id),
+        group_ids: groupLinks.map((l) => l.group_id),
+      });
+      // 暂存映射，保存时复制到新 provider。
+      copyMappingsRef.current = mappings.map((m) => ({ from_model: m.from_model, to_model: m.to_model }));
     } catch {
       /* ignore */
     }
   };
 
-  // 列表里显示每个 provider 已分配的代理名。
+  // 普通新建：清掉复制暂存，避免上一轮复制的映射泄漏。
+  const openCreate = () => {
+    copyMappingsRef.current = null;
+    crud.openCreate();
+    const defaultGroup = allGroups?.find((g) => g.name === 'default');
+    if (defaultGroup) {
+      crud.form.setFieldsValue({ group_ids: [defaultGroup.id] });
+    }
+  };
+
+  // 列表里显示每个 provider 已分配的分组/代理名。
+  const [groupNames, setGroupNames] = useState<Record<string, string[]>>({});
   const [proxyNames, setProxyNames] = useState<Record<string, string[]>>({});
   const [healthHourly, setHealthHourly] = useState<Record<string, HealthBucket[]>>({});
   useEffect(() => {
@@ -100,7 +162,7 @@ function Providers() {
     if (!data) return;
     let cancelled = false;
     (async () => {
-      const [hourly, entries] = await Promise.all([
+      const [hourly, proxyEntries, groupEntries] = await Promise.all([
         fetchProviderHealthHourly().catch(() => ({})),
         Promise.all(
           data.map(async (p) => {
@@ -108,10 +170,17 @@ function Providers() {
             return [p.id, links.map((l) => l.name).filter(Boolean)] as [string, string[]];
           }),
         ),
+        Promise.all(
+          data.map(async (p) => {
+            const links = await listProviderGroups(p.id).catch(() => []);
+            return [p.id, links.map((l) => l.name).filter(Boolean)] as [string, string[]];
+          }),
+        ),
       ]);
       if (!cancelled) {
         setHealthHourly(hourly as Record<string, HealthBucket[]>);
-        setProxyNames(Object.fromEntries(entries));
+        setProxyNames(Object.fromEntries(proxyEntries));
+        setGroupNames(Object.fromEntries(groupEntries));
       }
     })();
     return () => {
@@ -127,7 +196,7 @@ function Providers() {
         data={crud.data}
         loading={crud.loading}
         onReload={crud.reload}
-        onCreate={crud.openCreate}
+        onCreate={openCreate}
         createText="新增 Provider"
         columns={[
           { title: '名称', dataIndex: 'name', sorter: (a, b) => a.name.localeCompare(b.name) },
@@ -187,6 +256,23 @@ function Providers() {
             },
           },
           {
+            title: '分组',
+            dataIndex: 'id',
+            render: (id: string) => {
+              const names = groupNames[id] || [];
+              if (!names.length) return <Tag>—</Tag>;
+              return (
+                <Space size={4} wrap>
+                  {names.map((n) => (
+                    <Tag key={n} color="blue">
+                      {n}
+                    </Tag>
+                  ))}
+                </Space>
+              );
+            },
+          },
+          {
             title: '代理',
             dataIndex: 'id',
             render: (id: string) => {
@@ -214,12 +300,21 @@ function Providers() {
           {
             title: '操作',
             fixed: 'right',
-            width: 190,
+            width: 230,
             render: (_: unknown, r: Provider) => (
               <Space>
                 <a onClick={() => openEdit(r)}>编辑</a>
                 <a onClick={() => openCopy(r)}>复制</a>
                 <a onClick={() => setMmFor(r)}>模型映射</a>
+                <Popconfirm
+                  title={`删除 provider「${r.name}」？`}
+                  description="连同其代理关联与模型映射一起删除。"
+                  onConfirm={() => remove(r)}
+                  okText="删除"
+                  okButtonProps={{ danger: true }}
+                >
+                  <a style={{ color: '#ff4d4f' }}>删除</a>
+                </Popconfirm>
               </Space>
             ),
           },
@@ -286,6 +381,13 @@ function Providers() {
         </Form.Item>
         <Form.Item label="默认 Headers (JSON)" name="default_headers">
           <Input.TextArea rows={2} placeholder='{"x-foo":"bar"}' />
+        </Form.Item>
+        <Form.Item
+          label="服务分组"
+          name="group_ids"
+          extra="选择该 provider 服务的分组；选择顺序即组内 failover priority。"
+        >
+          <Select mode="multiple" options={groupOptions} placeholder="选择分组" />
         </Form.Item>
         <Form.Item
           label="出站代理"

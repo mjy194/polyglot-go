@@ -9,6 +9,7 @@ import {
 import { getStats, listAdapters, listRequestLogs } from '../api/client';
 import PageContainer from '../components/PageContainer';
 import StatusBadge from '../components/StatusBadge';
+import { formatTime } from '../utils/format';
 import type { Stats, Adapter, RequestLog } from '../api/types';
 
 const { Text } = Typography;
@@ -125,7 +126,7 @@ function Dashboard() {
               emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无请求" />,
             }}
             columns={[
-              { title: '时间', dataIndex: 'created_at' },
+              { title: '时间', dataIndex: 'created_at', render: (v: string) => formatTime(v) },
               { title: '协议', dataIndex: 'protocol' },
               { title: '模型', dataIndex: 'model' },
               {

@@ -4,6 +4,7 @@ import { listRequestLogs } from '../api/client';
 import { useFetch } from '../hooks/useFetch';
 import PageContainer from '../components/PageContainer';
 import CrudTable from '../components/CrudTable';
+import { formatTime } from '../utils/format';
 import type { RequestLog, RequestLogFilter } from '../api/types';
 
 function Logs() {
@@ -69,7 +70,7 @@ function Logs() {
           { title: '端点', dataIndex: 'endpoint', render: (v: string) => v || '—' },
           {
             title: '分组',
-            dataIndex: 'provider',
+            dataIndex: 'group',
             render: (v: string) => v || '—',
           },
           {
@@ -108,7 +109,7 @@ function Logs() {
             title: '时间',
             dataIndex: 'created_at',
             defaultSortOrder: 'descend',
-            render: (v: string) => new Date(v).toLocaleString(),
+            render: (v: string) => formatTime(v),
           },
           {
             title: 'IP',

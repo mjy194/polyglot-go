@@ -5,6 +5,7 @@ import { useFetch } from '../hooks/useFetch';
 import PageContainer from '../components/PageContainer';
 import CrudTable from '../components/CrudTable';
 import StatusBadge from '../components/StatusBadge';
+import { formatTime } from '../utils/format';
 import type { Adapter, AdapterInstance } from '../api/types';
 
 function InstanceTable({ adapterId }: { adapterId: string }) {
@@ -56,7 +57,7 @@ function Adapters() {
           { title: '名称', dataIndex: 'name', sorter: (a, b) => a.name.localeCompare(b.name) },
           { title: '类型', dataIndex: 'type' },
           { title: '状态', dataIndex: 'status', render: (s: string) => <StatusBadge status={s} /> },
-          { title: '创建时间', dataIndex: 'created_at' },
+          { title: '创建时间', dataIndex: 'created_at', render: (v: string) => formatTime(v) },
         ]}
       />
     </PageContainer>

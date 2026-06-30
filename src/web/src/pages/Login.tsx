@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Typography, App } from 'antd';
+import { Form, Input, Button, Typography, App, theme as antdTheme } from 'antd';
 import { ThunderboltOutlined, UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
+import { useThemeMode } from '../context/ThemeContext';
+import ThemeToggleButton from '../components/ThemeToggleButton';
 
 const { Title, Paragraph } = Typography;
 
@@ -10,8 +12,11 @@ function Login() {
   const { login, bootstrap } = useAuth();
   const navigate = useNavigate();
   const { message } = App.useApp();
+  const { mode: themeMode } = useThemeMode();
+  const { token } = antdTheme.useToken();
   const [submitting, setSubmitting] = useState(false);
   const [mode, setMode] = useState<'login' | 'bootstrap'>('login');
+  const isDark = themeMode === 'dark';
 
   const onLogin = async (values: { email: string; password: string }) => {
     setSubmitting(true);
@@ -49,8 +54,10 @@ function Login() {
       <div
         style={{
           flex: 1,
-          background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
-          color: '#fff',
+          background: isDark
+            ? 'linear-gradient(135deg, #312e81 0%, #4c1d95 100%)'
+            : 'linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%)',
+          color: isDark ? '#fff' : token.colorText,
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'center',
@@ -58,10 +65,16 @@ function Login() {
         }}
       >
         <div style={{ fontSize: 44, fontWeight: 700, marginBottom: 16 }}>🌐 Polyglot</div>
-        <Title level={2} style={{ color: '#fff', marginTop: 0 }}>
+        <Title level={2} style={{ color: isDark ? '#fff' : token.colorText, marginTop: 0 }}>
           Universal AI API Gateway
         </Title>
-        <Paragraph style={{ color: 'rgba(255,255,255,0.85)', fontSize: 16, maxWidth: 420 }}>
+        <Paragraph
+          style={{
+            color: isDark ? 'rgba(255,255,255,0.85)' : token.colorTextSecondary,
+            fontSize: 16,
+            maxWidth: 420,
+          }}
+        >
           统一接入 Anthropic / OpenAI / Gemini,账号池、用量审计,一处管理。
         </Paragraph>
       </div>
@@ -73,12 +86,15 @@ function Login() {
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'center',
+          position: 'relative',
           padding: '0 56px',
-          background: '#fff',
+          background: token.colorBgContainer,
+          borderInlineStart: `1px solid ${token.colorBorderSecondary}`,
         }}
       >
+        <ThemeToggleButton style={{ position: 'absolute', top: 24, right: 24 }} />
         <Title level={3} style={{ marginBottom: 4 }}>
-          <ThunderboltOutlined style={{ color: '#4f46e5' }} />{' '}
+          <ThunderboltOutlined style={{ color: token.colorPrimary }} />{' '}
           {mode === 'login' ? '登录管理后台' : '首次初始化'}
         </Title>
         <Paragraph type="secondary">

@@ -4,6 +4,7 @@ import { listUsageEvents } from '../api/client';
 import { useFetch } from '../hooks/useFetch';
 import PageContainer from '../components/PageContainer';
 import CrudTable from '../components/CrudTable';
+import { formatTime } from '../utils/format';
 import type { UsageEvent, UsageEventFilter } from '../api/types';
 
 function Usage() {
@@ -57,6 +58,7 @@ function Usage() {
             dataIndex: 'created_at',
             sorter: (a, b) => a.created_at.localeCompare(b.created_at),
             defaultSortOrder: 'descend',
+            render: (v: string) => formatTime(v),
           },
           { title: 'Provider', dataIndex: 'provider' },
           { title: '模型', dataIndex: 'model' },

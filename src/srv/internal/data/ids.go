@@ -10,6 +10,7 @@ const (
 	idPrefixProvider     = "prov"
 	idPrefixModelMapping = "map"
 	idPrefixProxy        = "proxy"
+	idPrefixGroup        = "grp"
 )
 
 func newID(prefix string) string {

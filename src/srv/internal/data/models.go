@@ -13,6 +13,7 @@ type UserRecord struct {
 	DisplayName  string `gorm:"size:255"`
 	PasswordHash string `gorm:"size:255"`
 	Status       string `gorm:"size:32;not null;default:active"`
+	Group        string `gorm:"column:group_name;size:64;not null;default:default"`
 	LastLoginAt  *time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -42,6 +43,7 @@ type APIKeyRecord struct {
 	Key        string `gorm:"size:255;uniqueIndex;not null"`
 	Scopes     string `gorm:"type:text;not null;default:'[]'"`
 	Status     string `gorm:"size:32;not null;default:active"`
+	Group      string `gorm:"column:group_name;size:64;not null;default:default"`
 	ExpiresAt  *time.Time
 	LastUsedAt *time.Time
 	CreatedAt  time.Time
@@ -96,6 +98,26 @@ type ProviderProxyRecord struct {
 	ProviderID string `gorm:"primaryKey;size:64"`
 	ProxyID    string `gorm:"primaryKey;size:64"`
 	Priority   int    `gorm:"not null;default:0"` // failover ordering, lower = higher priority
+	CreatedAt  time.Time
+}
+
+// Group is an access/billing tier between users/keys and providers.
+type GroupRecord struct {
+	ID          string  `gorm:"primaryKey;size:64"`
+	Name        string  `gorm:"size:64;uniqueIndex;not null"`
+	Description string  `gorm:"size:255"`
+	Ratio       float64 `gorm:"type:numeric(8,4);not null;default:1"` // billing multiplier (future)
+	Strategy    string  `gorm:"size:16;not null;default:failover"`    // failover|round_robin|random
+	Status      string  `gorm:"size:32;not null;default:active"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// GroupProvider is the M:N association between a group and a provider.
+type GroupProviderRecord struct {
+	GroupID    string `gorm:"primaryKey;size:64"`
+	ProviderID string `gorm:"primaryKey;size:64"`
+	Priority   int    `gorm:"not null;default:0"`
 	CreatedAt  time.Time
 }
 
@@ -213,15 +235,16 @@ type RequestLogRecord struct {
 	LatencyMs    int64
 	InputTokens  int64
 	OutputTokens int64
-	ErrorType    string `gorm:"size:128"`
-	ErrorMessage string `gorm:"type:text"`
-	ClientIP     string `gorm:"size:64;index"`
-	Endpoint     string `gorm:"size:128"`
-	TTFTMs       int64 // time to first token (ms); 0 if never streamed/written
-	AccountID    string `gorm:"size:64;index"`
+	ErrorType    string  `gorm:"size:128"`
+	ErrorMessage string  `gorm:"type:text"`
+	ClientIP     string  `gorm:"size:64;index"`
+	Endpoint     string  `gorm:"size:128"`
+	TTFTMs       int64   // time to first token (ms); 0 if never streamed/written
+	AccountID    string  `gorm:"size:64;index"`
 	Cost         float64 `gorm:"type:numeric(12,6)"` // populated once pricing exists
-	Type         string `gorm:"size:16;index"` // stream | nonstream
+	Type         string  `gorm:"size:16;index"`      // stream | nonstream
 	CachedTokens int64
+	Group        string `gorm:"size:64;index"`
 	CreatedAt    time.Time
 }
 
@@ -234,6 +257,8 @@ func (ProviderRecord) TableName() string           { return "providers" }
 func (ProviderCredentialRecord) TableName() string { return "provider_credentials" }
 func (ProxyRecord) TableName() string              { return "proxies" }
 func (ProviderProxyRecord) TableName() string      { return "provider_proxies" }
+func (GroupRecord) TableName() string              { return "groups" }
+func (GroupProviderRecord) TableName() string      { return "group_providers" }
 func (ModelMappingRecord) TableName() string       { return "model_mappings" }
 func (AdapterRecord) TableName() string            { return "adapters" }
 func (AdapterInstanceRecord) TableName() string    { return "adapter_instances" }
@@ -371,6 +396,29 @@ func providerProxiesFromRecords(records []ProviderProxyRecord) []domain.Provider
 	out := make([]domain.ProviderProxy, len(records))
 	for i, record := range records {
 		out[i] = providerProxyFromRecord(record)
+	}
+	return out
+}
+
+func groupToRecord(group domain.Group) GroupRecord    { return GroupRecord(group) }
+func groupFromRecord(record GroupRecord) domain.Group { return domain.Group(record) }
+func groupsFromRecords(records []GroupRecord) []domain.Group {
+	groups := make([]domain.Group, len(records))
+	for i, record := range records {
+		groups[i] = groupFromRecord(record)
+	}
+	return groups
+}
+func groupProviderToRecord(gp domain.GroupProvider) GroupProviderRecord {
+	return GroupProviderRecord(gp)
+}
+func groupProviderFromRecord(record GroupProviderRecord) domain.GroupProvider {
+	return domain.GroupProvider(record)
+}
+func groupProvidersFromRecords(records []GroupProviderRecord) []domain.GroupProvider {
+	out := make([]domain.GroupProvider, len(records))
+	for i, record := range records {
+		out[i] = groupProviderFromRecord(record)
 	}
 	return out
 }

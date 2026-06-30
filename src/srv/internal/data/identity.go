@@ -29,6 +29,8 @@ type IdentityRepository interface {
 	UpsertAPIKey(ctx context.Context, apiKey domain.APIKey) (domain.APIKey, error)
 	GetAPIKeyByKey(ctx context.Context, key string) (domain.APIKey, bool, error)
 	ListAPIKeys(ctx context.Context) ([]domain.APIKey, error)
+	ListAPIKeysByUser(ctx context.Context, userID string) ([]domain.APIKey, error)
+	DeleteAPIKey(ctx context.Context, id string) error
 	CountAPIKeys(ctx context.Context) (int64, error)
 
 	CreateAdminSession(ctx context.Context, session domain.AdminSession) (domain.AdminSession, error)
@@ -53,6 +55,7 @@ func (r *gormIdentityRepository) UpsertUser(ctx context.Context, user domain.Use
 		"email",
 		"display_name",
 		"status",
+		"group_name",
 		"last_login_at",
 		"updated_at",
 	}
@@ -181,6 +184,7 @@ func (r *gormIdentityRepository) UpsertAPIKey(ctx context.Context, apiKey domain
 			"key",
 			"scopes",
 			"status",
+			"group_name",
 			"expires_at",
 			"last_used_at",
 			"updated_at",
@@ -205,6 +209,16 @@ func (r *gormIdentityRepository) ListAPIKeys(ctx context.Context) ([]domain.APIK
 	var records []APIKeyRecord
 	err := r.db.WithContext(ctx).Order("created_at ASC").Find(&records).Error
 	return apiKeysFromRecords(records), err
+}
+
+func (r *gormIdentityRepository) ListAPIKeysByUser(ctx context.Context, userID string) ([]domain.APIKey, error) {
+	var records []APIKeyRecord
+	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Order("created_at ASC").Find(&records).Error
+	return apiKeysFromRecords(records), err
+}
+
+func (r *gormIdentityRepository) DeleteAPIKey(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&APIKeyRecord{}).Error
 }
 
 func (r *gormIdentityRepository) CountAPIKeys(ctx context.Context) (int64, error) {

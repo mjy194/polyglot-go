@@ -15,6 +15,7 @@ type ProviderRepository interface {
 	UpsertProvider(ctx context.Context, provider domain.Provider) (domain.Provider, error)
 	GetProvider(ctx context.Context, id string) (domain.Provider, bool, error)
 	ListProviders(ctx context.Context) ([]domain.Provider, error)
+	DeleteProvider(ctx context.Context, id string) error
 	UpsertCredential(ctx context.Context, credential domain.ProviderCredential) error
 	UpsertModelMapping(ctx context.Context, mapping domain.ModelMapping) (domain.ModelMapping, error)
 	ListModelMappings(ctx context.Context) ([]domain.ModelMapping, error)
@@ -70,6 +71,26 @@ func (r *gormProviderRepository) ListProviders(ctx context.Context) ([]domain.Pr
 	var providers []ProviderRecord
 	err := r.db.WithContext(ctx).Order("created_at ASC").Find(&providers).Error
 	return providersFromRecords(providers), err
+}
+
+// DeleteProvider removes a provider plus its associations and model mappings in
+// one transaction (avoids orphaned child rows).
+func (r *gormProviderRepository) DeleteProvider(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("provider_id = ?", id).Delete(&ProviderProxyRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("provider_id = ?", id).Delete(&GroupProviderRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("provider_id = ?", id).Delete(&ModelMappingRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("provider_id = ?", id).Delete(&ProviderCredentialRecord{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Delete(&ProviderRecord{}).Error
+	})
 }
 
 func (r *gormProviderRepository) UpsertCredential(ctx context.Context, credential domain.ProviderCredential) error {

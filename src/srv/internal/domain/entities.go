@@ -6,6 +6,7 @@ const (
 	StatusActive   = "active"
 	StatusDisabled = "disabled"
 	StatusHealthy  = "healthy"
+	StatusStale    = "stale" // 实例心跳超时：超过阈值未上报则标记，供调度跳过
 
 	LeaseStatusActive   = "active"
 	LeaseStatusReleased = "released"
@@ -17,6 +18,7 @@ type User struct {
 	DisplayName  string     `json:"display_name"`
 	PasswordHash string     `json:"-"`
 	Status       string     `json:"status"`
+	Group        string     `json:"group"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
@@ -43,6 +45,7 @@ type APIKey struct {
 	Key        string     `json:"key"`
 	Scopes     string     `json:"scopes"`
 	Status     string     `json:"status"`
+	Group      string     `json:"group"`
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
@@ -68,10 +71,10 @@ type Provider struct {
 	AuthType       string    `json:"auth_type"`
 	DefaultHeaders string    `json:"default_headers"`
 	Status         string    `json:"status"`
-	ProxyStrategy  string    `json:"proxy_strategy"`  // failover|round_robin|random
-	Mode           string    `json:"mode"`            // "" | "adapter" | "passthrough"
-	Adapter        string    `json:"adapter"`         // adapter mode: registered adapter provider name
-	APIKey         string    `json:"api_key"`         // passthrough mode: upstream api key
+	ProxyStrategy  string    `json:"proxy_strategy"` // failover|round_robin|random
+	Mode           string    `json:"mode"`           // "" | "adapter" | "passthrough"
+	Adapter        string    `json:"adapter"`        // adapter mode: registered adapter provider name
+	APIKey         string    `json:"api_key"`        // passthrough mode: upstream api key
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
@@ -81,7 +84,7 @@ type Provider struct {
 type Proxy struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
-	URL       string    `json:"url"`       // scheme://host:port (no credentials)
+	URL       string    `json:"url"` // scheme://host:port (no credentials)
 	Username  string    `json:"username,omitempty"`
 	Password  string    `json:"password,omitempty"`
 	Status    string    `json:"status"`
@@ -93,6 +96,26 @@ type Proxy struct {
 type ProviderProxy struct {
 	ProviderID string    `json:"provider_id"`
 	ProxyID    string    `json:"proxy_id"`
+	Priority   int       `json:"priority"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// Group is an access/billing tier between users/keys and providers.
+type Group struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Ratio       float64   `json:"ratio"`
+	Strategy    string    `json:"strategy"` // failover|round_robin|random
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// GroupProvider is one edge of the group↔provider many-to-many relationship.
+type GroupProvider struct {
+	GroupID    string    `json:"group_id"`
+	ProviderID string    `json:"provider_id"`
 	Priority   int       `json:"priority"`
 	CreatedAt  time.Time `json:"created_at"`
 }
@@ -211,5 +234,6 @@ type RequestLog struct {
 	Cost         float64   `json:"cost"`
 	Type         string    `json:"type"` // stream | nonstream
 	CachedTokens int64     `json:"cached_tokens"`
+	Group        string    `json:"group"`
 	CreatedAt    time.Time `json:"created_at"`
 }

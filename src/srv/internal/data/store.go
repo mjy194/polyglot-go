@@ -31,6 +31,7 @@ type Store struct {
 	accounts  AccountRepository
 	providers ProviderRepository
 	proxies   ProxyRepository
+	groups    GroupRepository
 	identity  IdentityRepository
 	adapters  AdapterRepository
 	audit     AuditRepository
@@ -60,6 +61,9 @@ func Open(cfg Config) (*Store, error) {
 		if err := repairProxiesLegacyType(db); err != nil {
 			return nil, fmt.Errorf("repair legacy proxies.type column: %w", err)
 		}
+		if err := seedDefaultGroup(db); err != nil {
+			return nil, fmt.Errorf("seed default group: %w", err)
+		}
 		if err := repairBlankPrimaryKeys(db); err != nil {
 			return nil, fmt.Errorf("repair blank primary keys: %w", err)
 		}
@@ -72,6 +76,7 @@ func Open(cfg Config) (*Store, error) {
 		accounts:  NewGormAccountRepository(db),
 		providers: NewGormProviderRepository(db),
 		proxies:   NewGormProxyRepository(db),
+		groups:    NewGormGroupRepository(db),
 		identity:  NewGormIdentityRepository(db),
 		adapters:  NewGormAdapterRepository(db),
 		audit:     NewGormAuditRepository(db),
@@ -90,6 +95,8 @@ func migrationModels() []interface{} {
 		&ProviderRecord{},
 		&ProxyRecord{},
 		&ProviderProxyRecord{},
+		&GroupRecord{},
+		&GroupProviderRecord{},
 		&ProviderCredentialRecord{},
 		&ModelMappingRecord{},
 		&AdapterRecord{},
@@ -167,6 +174,11 @@ func (s *Store) Providers() ProviderRepository {
 // Proxies returns network proxy persistence operations.
 func (s *Store) Proxies() ProxyRepository {
 	return s.proxies
+}
+
+// Groups returns group and group↔provider association persistence operations.
+func (s *Store) Groups() GroupRepository {
+	return s.groups
 }
 
 // Identity returns tenant, user, role, and API key persistence operations.

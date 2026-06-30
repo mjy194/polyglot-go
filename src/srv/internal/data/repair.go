@@ -126,6 +126,76 @@ func repairProxiesLegacyType(db *gorm.DB) error {
 	return db.Exec(`ALTER TABLE "proxies" DROP COLUMN "type"`).Error
 }
 
+// seedDefaultGroup ensures a "default" group exists and backfills any
+// user/api_key with an empty group to "default". Also assigns providers that
+// belong to no group into "default", so existing providers keep routing after
+// the group concept is introduced. Idempotent.
+func seedDefaultGroup(db *gorm.DB) error {
+	// Ensure the default group row exists.
+	var count int64
+	if err := db.Model(&GroupRecord{}).Where("name = ?", "default").Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		if err := db.Create(&GroupRecord{
+			ID:       "grp_default",
+			Name:     "default",
+			Ratio:    1,
+			Strategy: "failover",
+			Status:   "active",
+		}).Error; err != nil {
+			return err
+		}
+	}
+
+	var defaultGroup GroupRecord
+	if err := db.Where("name = ?", "default").First(&defaultGroup).Error; err != nil {
+		return err
+	}
+
+	// Backfill empty group on users / api keys.
+	if err := db.Model(&UserRecord{}).Where("group_name = '' OR group_name IS NULL").Update("group_name", "default").Error; err != nil {
+		return err
+	}
+	if err := db.Model(&APIKeyRecord{}).Where("group_name = '' OR group_name IS NULL").Update("group_name", "default").Error; err != nil {
+		return err
+	}
+
+	var providerIDs []string
+	if err := db.Model(&ProviderRecord{}).Pluck("id", &providerIDs).Error; err != nil {
+		return err
+	}
+	if len(providerIDs) == 0 {
+		return nil
+	}
+
+	var linked []string
+	if err := db.Model(&GroupProviderRecord{}).
+		Where("provider_id IN ?", providerIDs).
+		Distinct("provider_id").
+		Pluck("provider_id", &linked).Error; err != nil {
+		return err
+	}
+	linkedSet := make(map[string]struct{}, len(linked))
+	for _, id := range linked {
+		linkedSet[id] = struct{}{}
+	}
+
+	newRows := make([]GroupProviderRecord, 0, len(providerIDs)-len(linkedSet))
+	for _, pid := range providerIDs {
+		if _, ok := linkedSet[pid]; ok {
+			continue
+		}
+		newRows = append(newRows, GroupProviderRecord{GroupID: defaultGroup.ID, ProviderID: pid})
+	}
+	if len(newRows) > 0 {
+		if err := db.Create(&newRows).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func repairBlankPrimaryKeys(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		if err := repairBlankUserID(tx); err != nil {

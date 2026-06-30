@@ -52,6 +52,9 @@ service AccountService {
 
   // 上报使用情况
   rpc ReportUsage(ReportUsageRequest) returns (ReportUsageResponse);
+
+  // adapter 周期上报存活；框架回传最新配置（代理等）实现热更新
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 }
 
 // AccountSourceService Adapter 实现的账号源服务
@@ -89,9 +92,27 @@ message WatermarkConfig {
   int32 supply_batch_size = 5;
 }
 
+// SourceConfig 框架下发给 adapter 的运行时配置（注册响应 + 心跳回传）
+message SourceConfig {
+  string proxy_url = 1;   // scheme://[user:pass@]host:port；空 = 不走代理
+}
+
 message RegisterSourceResponse {
   bool success = 1;
   string message = 2;
+  SourceConfig config = 3;   // 注册时下发初始配置
+}
+
+// Heartbeat — adapter 周期上报存活，框架回传最新配置实现热更新
+message HeartbeatRequest {
+  string source_id = 1;
+  string instance_id = 2;   // 与 UpsertInstance 的 ID 对齐（= source_id）
+  string status = 3;        // "active"
+}
+
+message HeartbeatResponse {
+  bool success = 1;
+  SourceConfig config = 2;  // 最新配置（代理等），adapter 据此热更新
 }
 
 message AcquireAccountRequest {

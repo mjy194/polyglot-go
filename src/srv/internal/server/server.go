@@ -18,6 +18,7 @@ import (
 	"polyglot/internal/domain"
 	"polyglot/internal/passthrough"
 	"polyglot/internal/proxy"
+	"polyglot/internal/server/middleware"
 	"polyglot/internal/storage"
 	"polyglot/pkg/logger"
 	pb "polyglot/proto/adapter"
@@ -58,6 +59,9 @@ func New(cfg *config.Config, log logger.Logger) (*Server, error) {
 	}
 	proxyResolver := &storeProxyResolver{store: dataStore}
 	passthroughProxy := passthrough.New(passthroughCfg, proxyResolver)
+	// 注入代理解析：注册响应 + 心跳回传时按 provider 选代理下发给 adapter，
+	// 使其 OAuth 登录/续期走代理（避免 account→server 循环依赖，用接口注入）。
+	accountService.SetProxyResolver(proxyResolver)
 
 	// 创建 gRPC server
 	grpcServer := grpc.NewServer()
@@ -168,30 +172,71 @@ type rpCache struct {
 
 const rpContextKey = "route_provider"
 
-// routeProvider picks the DB provider that should serve a protocol, considering
-// only providers that have explicitly opted into DB-driven routing (Mode != "").
-// Priority: passthrough-mode matching Type==protocol (responses→openai), then any
-// adapter-mode provider. Returns (nil,false) to signal "use legacy config routing".
-func (s *Server) routeProvider(ctx context.Context, protocol string) (*domain.Provider, bool) {
+// routeProvider picks the DB provider that should serve a protocol within the
+// request's group. Selection priority: passthrough-mode matching Type==protocol
+// (responses→openai), then adapter-mode. Falls back group → "default" group →
+// any provider, so grouping never causes a hard failure.
+func (s *Server) routeProvider(ctx context.Context, protocol string, group string) (*domain.Provider, bool) {
+	if group == "" {
+		group = "default"
+	}
 	matchType := protocol
 	if protocol == passthrough.ProtocolResponses {
 		matchType = passthrough.ProtocolOpenAI
 	}
-	providers, err := s.dataStore.Providers().ListProviders(ctx)
-	if err != nil {
+
+	// pickFrom runs the passthrough→adapter selection over a candidate list using
+	// the group's strategy (failover/round_robin/random). Candidates arrive
+	// priority-ordered from ListProvidersForGroup; index preserves that order.
+	pickFrom := func(provs []domain.Provider, strategy string) (*domain.Provider, bool) {
+		var pt []proxy.ResolvedProxy
+		var ad []proxy.ResolvedProxy
+		ptByID := map[string]*domain.Provider{}
+		adByID := map[string]*domain.Provider{}
+		for i := range provs {
+			p := &provs[i]
+			if p.Status != domain.StatusActive {
+				continue
+			}
+			if (p.Mode == "passthrough" || p.Mode == "") && p.Type == matchType {
+				pt = append(pt, proxy.ResolvedProxy{ID: p.ID, Priority: i})
+				ptByID[p.ID] = p
+			} else if p.Mode == "adapter" {
+				ad = append(ad, proxy.ResolvedProxy{ID: p.ID, Priority: i})
+				adByID[p.ID] = p
+			}
+		}
+		if len(pt) > 0 {
+			if pick, ok := proxy.NewSelector(strategy).Pick(pt); ok {
+				return ptByID[pick.ID], true
+			}
+		}
+		if len(ad) > 0 {
+			if pick, ok := proxy.NewSelector(strategy).Pick(ad); ok {
+				return adByID[pick.ID], true
+			}
+		}
 		return nil, false
 	}
-	// Passthrough is the default mode (empty Mode == passthrough). An explicit
-	// adapter-mode provider is the generic fallback backbone.
-	for i := range providers {
-		p := &providers[i]
-		if p.Status == domain.StatusActive && (p.Mode == "passthrough" || p.Mode == "") && p.Type == matchType {
-			return p, true
+
+	if g, found, err := s.dataStore.Groups().GetGroupByName(ctx, group); err == nil && found {
+		if provs, err := s.dataStore.Groups().ListProvidersForGroup(ctx, g.ID); err == nil {
+			if p, ok := pickFrom(provs, g.Strategy); ok {
+				return p, true
+			}
 		}
 	}
-	for i := range providers {
-		p := &providers[i]
-		if p.Status == domain.StatusActive && p.Mode == "adapter" {
+	if group != "default" {
+		if g, found, err := s.dataStore.Groups().GetGroupByName(ctx, "default"); err == nil && found {
+			if provs, err := s.dataStore.Groups().ListProvidersForGroup(ctx, g.ID); err == nil {
+				if p, ok := pickFrom(provs, g.Strategy); ok {
+					return p, true
+				}
+			}
+		}
+	}
+	if all, err := s.dataStore.Providers().ListProviders(ctx); err == nil {
+		if p, ok := pickFrom(all, "failover"); ok {
 			return p, true
 		}
 	}
@@ -212,12 +257,13 @@ func (s *Server) routeProviderCached(c context.Context, protocol string) (*domai
 				return normalize(cp.p, cp.ok)
 			}
 		}
-		p, ok := s.routeProvider(c, protocol)
+		group := gc.GetString(middleware.ContextGroup)
+		p, ok := s.routeProvider(c, protocol, group)
 		p, ok = normalize(p, ok)
 		gc.Set(rpContextKey, &rpCache{p: p, ok: ok})
 		return p, ok
 	}
-	return normalize(s.routeProvider(c, protocol))
+	return normalize(s.routeProvider(c, protocol, "default"))
 }
 
 // providerUpstream builds a passthrough upstream config from a DB provider.
@@ -227,8 +273,8 @@ func providerUpstream(p *domain.Provider) config.UpstreamConfig {
 		_ = json.Unmarshal([]byte(p.DefaultHeaders), &headers)
 	}
 	return config.UpstreamConfig{
-		BaseURL: p.BaseURL,
-		APIKey:  p.APIKey,
+		BaseURL:  p.BaseURL,
+		APIKey:   p.APIKey,
 		AuthType: p.AuthType,
 		Headers:  headers,
 	}
@@ -263,8 +309,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // responses falls back to the openai provider's proxies (mirroring upstream
 // resolution). Returns empty candidates when no provider/proxy is configured.
 type storeProxyResolver struct {
-	store      *data.Store
-	selectors  sync.Map // key (e.g. protocol or provider name) + strategy → proxy.Selector
+	store     *data.Store
+	selectors sync.Map // key (e.g. protocol or provider name) + strategy → proxy.Selector
 }
 
 // selectorFor returns a cached Selector keyed by (key, strategy).
@@ -383,4 +429,39 @@ func (r *storeProxyResolver) ResolveForProvider(ctx context.Context, prov *domai
 		return "", nil
 	}
 	return pick.URL, nil
+}
+
+// ResolveForProviderName picks one proxy URL for a provider matched by Name first,
+// falling back to Type (so an adapter registering with Provider="uipath" resolves
+// whether the DB provider's Name or Type carries that value). Returns "" when no
+// matching active provider or no proxies are configured. Satisfies
+// account.ProxyResolver, injected into the pool for register/heartbeat config push.
+func (r *storeProxyResolver) ResolveForProviderName(ctx context.Context, name string) (string, error) {
+	if name == "" {
+		return "", nil
+	}
+	providers, err := r.store.Providers().ListProviders(ctx)
+	if err != nil {
+		return "", err
+	}
+	var byName, byType *domain.Provider
+	for i := range providers {
+		if providers[i].Status != domain.StatusActive {
+			continue
+		}
+		if providers[i].Name == name && byName == nil {
+			byName = &providers[i]
+		}
+		if providers[i].Type == name && byType == nil {
+			byType = &providers[i]
+		}
+	}
+	prov := byName
+	if prov == nil {
+		prov = byType
+	}
+	if prov == nil {
+		return "", nil
+	}
+	return r.ResolveForProvider(ctx, prov)
 }

@@ -16,6 +16,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// ProxyResolver 按 provider 名解析出站代理 URL（provider↔proxy 的 M:N 选择）。
+// 由 internal/server 的 storeProxyResolver 实现并注入，避免 account→server 的循环依赖。
+type ProxyResolver interface {
+	ResolveForProviderName(ctx context.Context, name string) (string, error)
+}
+
 // AccountPoolService 实现 AccountService 接口
 type AccountPoolService struct {
 	pb.UnimplementedAccountServiceServer
@@ -24,9 +30,33 @@ type AccountPoolService struct {
 	store    *data.Store
 	mu       sync.RWMutex
 
+	// 代理解析（注册响应 + 心跳回传时按 provider 选代理下发给 adapter）
+	proxyResolver ProxyResolver
+
 	// 水位监控
 	ticker *time.Ticker
 	stopCh chan struct{}
+
+	// 实例存活回收（心跳超时标记 stale）
+	reaperTicker *time.Ticker
+}
+
+// SetProxyResolver 注入代理解析器（在 server 装配阶段调用）。
+func (s *AccountPoolService) SetProxyResolver(r ProxyResolver) {
+	s.proxyResolver = r
+}
+
+// resolveProxyURL 按 provider 名解析单个代理 URL；无解析器或出错时返回空串。
+func (s *AccountPoolService) resolveProxyURL(ctx context.Context, provider string) string {
+	if s.proxyResolver == nil || provider == "" {
+		return ""
+	}
+	url, err := s.proxyResolver.ResolveForProviderName(ctx, provider)
+	if err != nil {
+		log.Printf("⚠️  Failed to resolve proxy for provider %s: %v", provider, err)
+		return ""
+	}
+	return url
 }
 
 // AccountSource 账号源
@@ -82,16 +112,20 @@ func NewAccountPoolServiceWithStore(store *data.Store) *AccountPoolService {
 	return svc
 }
 
-// Start 启动水位监控
+// Start 启动水位监控 + 实例存活回收
 func (s *AccountPoolService) Start() {
 	log.Println("🚀 Starting account pool watermark monitor...")
 	s.ticker = time.NewTicker(5 * time.Second)
+	// reaper 周期远长于心跳间隔（adapter 每 ~10s 心跳一次），避免误标 stale。
+	s.reaperTicker = time.NewTicker(30 * time.Second)
 
 	go func() {
 		for {
 			select {
 			case <-s.ticker.C:
 				s.checkWatermark()
+			case <-s.reaperTicker.C:
+				s.reapStaleInstances()
 			case <-s.stopCh:
 				return
 			}
@@ -104,6 +138,9 @@ func (s *AccountPoolService) Stop() {
 	close(s.stopCh)
 	if s.ticker != nil {
 		s.ticker.Stop()
+	}
+	if s.reaperTicker != nil {
+		s.reaperTicker.Stop()
 	}
 }
 
@@ -157,6 +194,7 @@ func (s *AccountPoolService) RegisterAccountSource(ctx context.Context, req *pb.
 		return &pb.RegisterSourceResponse{
 			Success: true,
 			Message: fmt.Sprintf("Source registered but failed to fetch initial accounts: %v", err),
+			Config:  &pb.SourceConfig{ProxyUrl: s.resolveProxyURL(ctx, req.Provider)},
 		}, nil
 	}
 
@@ -175,6 +213,7 @@ func (s *AccountPoolService) RegisterAccountSource(ctx context.Context, req *pb.
 	return &pb.RegisterSourceResponse{
 		Success: true,
 		Message: fmt.Sprintf("Registered with %d accounts", len(resp.Accounts)),
+		Config:  &pb.SourceConfig{ProxyUrl: s.resolveProxyURL(ctx, req.Provider)},
 	}, nil
 }
 
@@ -343,6 +382,62 @@ func (s *AccountPoolService) ReportUsage(ctx context.Context, req *pb.ReportUsag
 	}
 
 	return &pb.ReportUsageResponse{Success: true}, nil
+}
+
+// Heartbeat 处理 adapter 的周期心跳：更新实例存活时间，并回传最新配置（代理）实现热更新。
+func (s *AccountPoolService) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
+	instanceID := req.InstanceId
+	if instanceID == "" {
+		instanceID = req.SourceId
+	}
+	if s.store != nil && instanceID != "" {
+		if err := s.store.Adapters().MarkHeartbeat(ctx, instanceID, time.Now().UTC()); err != nil {
+			log.Printf("⚠️  Failed to mark heartbeat for instance %s: %v", instanceID, err)
+		}
+	}
+
+	// 回传最新代理配置（按 source 的 provider 解析），adapter 据此热更新登录/续期出口。
+	s.mu.RLock()
+	provider := ""
+	if src := s.sources[req.SourceId]; src != nil {
+		provider = src.Provider
+	}
+	s.mu.RUnlock()
+
+	return &pb.HeartbeatResponse{
+		Success: true,
+		Config:  &pb.SourceConfig{ProxyUrl: s.resolveProxyURL(ctx, provider)},
+	}, nil
+}
+
+// reapStaleInstances 将心跳超时的实例标记为 stale（激活 SetInstanceStatus）。
+// 心跳间隔约 10s，阈值取 60s 留足余量，避免抖动误标。
+func (s *AccountPoolService) reapStaleInstances() {
+	if s.store == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	instances, err := s.store.Adapters().ListInstances(ctx, "")
+	if err != nil {
+		log.Printf("⚠️  reaper: failed to list instances: %v", err)
+		return
+	}
+	const staleAfter = 60 * time.Second
+	now := time.Now().UTC()
+	for _, inst := range instances {
+		if inst.Status == domain.StatusStale {
+			continue
+		}
+		if inst.LastHeartbeatAt == nil || now.Sub(*inst.LastHeartbeatAt) > staleAfter {
+			if err := s.store.Adapters().SetInstanceStatus(ctx, inst.ID, domain.StatusStale); err != nil {
+				log.Printf("⚠️  reaper: failed to mark instance %s stale: %v", inst.ID, err)
+				continue
+			}
+			log.Printf("💀 Instance %s marked stale (no heartbeat)", inst.ID)
+		}
+	}
 }
 
 // 水位检查（定时任务）

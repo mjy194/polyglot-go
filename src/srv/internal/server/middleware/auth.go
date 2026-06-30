@@ -18,6 +18,7 @@ const (
 	ContextAPIKeyID      = "api_key_id"
 	ContextUserID        = "user_id"
 	ContextScopes        = "scopes"
+	ContextGroup         = "group" // the requesting user/key's group (default "default")
 	ContextAuditProvider = "audit_provider" // set by routing: the DB provider name that served the request
 )
 
@@ -51,6 +52,9 @@ func APIKeyAuth(store *data.Store) gin.HandlerFunc {
 		c.Set(ContextAPIKeyID, record.ID)
 		c.Set(ContextUserID, record.UserID)
 		c.Set(ContextScopes, parseScopes(record.Scopes))
+		if g := record.Group; g != "" {
+			c.Set(ContextGroup, g)
+		}
 		c.Next()
 	}
 }

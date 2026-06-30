@@ -111,6 +111,10 @@ func RequestAudit(store *data.Store, provider string) gin.HandlerFunc {
 		if isStream {
 			reqType = "stream"
 		}
+		group := stringContext(c, ContextGroup)
+		if group == "" {
+			group = "default"
+		}
 		if err := store.Audit().RecordRequest(c.Request.Context(), domain.RequestLog{
 			ID:            fmt.Sprintf("req_%d", start.UnixNano()),
 			UserID:        stringContext(c, ContextUserID),
@@ -128,6 +132,7 @@ func RequestAudit(store *data.Store, provider string) gin.HandlerFunc {
 			OutputTokens:  out,
 			CachedTokens:  cached,
 			Type:          reqType,
+			Group:         group,
 			CreatedAt:     start.UTC(),
 		}); err != nil {
 			span.EndError(err)

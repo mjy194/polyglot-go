@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -30,11 +29,11 @@ func (s *Server) setupRoutes() {
 	s.router.GET("/metrics", telemetry.MetricsHandler())
 
 	// Universal 路径解析器：按协议查 DB provider（adapter 模式用 provider.Adapter），
-	// 否则落回 config.Backend.Provider。adapter 注册前返回 503。
-	universalResolver := func(protocol string) func() (adapter.StreamProcessor, bool) {
-		return func() (adapter.StreamProcessor, bool) {
+	// adapter 注册前返回 503。
+	universalResolver := func(protocol string) handler.StreamProcessorResolver {
+		return func(c *gin.Context) (adapter.StreamProcessor, bool) {
 			name := s.config.Backend.Provider
-			if prov, ok := s.routeProvider(context.Background(), protocol); ok && prov.Mode == "adapter" {
+			if prov, ok := s.routeProviderCached(c, protocol); ok && prov.Mode == "adapter" {
 				name = prov.Adapter
 			}
 			client, ok := s.accountService.AdapterClient(name)
@@ -106,8 +105,12 @@ func (s *Server) setupRoutes() {
 			admin.POST("/user-roles", handler.AdminAssignRole(s.dataStore))
 			admin.GET("/api-keys", handler.AdminAPIKeys(s.dataStore))
 			admin.POST("/api-keys", handler.AdminUpsertAPIKey(s.dataStore))
+			admin.DELETE("/api-keys/:id", handler.AdminDeleteAPIKey(s.dataStore))
 			admin.GET("/providers", handler.AdminProviders(s.dataStore))
 			admin.POST("/providers", handler.AdminUpsertProvider(s.dataStore))
+			admin.GET("/providers/:id/groups", handler.AdminListProviderGroups(s.dataStore))
+			admin.POST("/providers/:id/groups", handler.AdminSetProviderGroups(s.dataStore))
+			admin.DELETE("/providers/:id", handler.AdminDeleteProvider(s.dataStore))
 			admin.GET("/providers/health", handler.AdminProviderHealth(s.dataStore))
 			admin.GET("/providers/health/hourly", handler.AdminProviderHealthHourly(s.dataStore))
 			admin.GET("/providers/:id/proxies", handler.AdminListProviderProxies(s.dataStore))
@@ -119,6 +122,11 @@ func (s *Server) setupRoutes() {
 			admin.POST("/proxies", handler.AdminUpsertProxy(s.dataStore))
 			admin.DELETE("/proxies/:id", handler.AdminDeleteProxy(s.dataStore))
 			admin.POST("/proxies/:id/test", handler.AdminTestProxy(s.dataStore))
+			admin.GET("/groups", handler.AdminGroups(s.dataStore))
+			admin.POST("/groups", handler.AdminUpsertGroup(s.dataStore))
+			admin.GET("/groups/:id/providers", handler.AdminListGroupProviders(s.dataStore))
+			admin.POST("/groups/:id/providers", handler.AdminSetGroupProviders(s.dataStore))
+			admin.DELETE("/groups/:id", handler.AdminDeleteGroup(s.dataStore))
 			admin.GET("/adapters", handler.AdminAdapters(s.dataStore))
 			admin.GET("/adapter-instances", handler.AdminAdapterInstances(s.dataStore))
 			admin.GET("/request-logs", handler.AdminRequestLogs(s.dataStore))

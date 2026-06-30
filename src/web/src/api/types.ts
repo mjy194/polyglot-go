@@ -9,6 +9,7 @@ export interface User {
   email: string;
   display_name: string;
   status: Status;
+  group: string;
   last_login_at?: string | null;
   created_at: string;
   updated_at: string;
@@ -36,6 +37,7 @@ export interface APIKey {
   key?: string;
   scopes: string;
   status: Status;
+  group: string;
   expires_at?: string | null;
   last_used_at?: string | null;
   created_at: string;
@@ -68,6 +70,33 @@ export interface Proxy {
   status: Status;
   created_at: string;
   updated_at: string;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  description: string;
+  ratio: number;
+  strategy: string;
+  status: Status;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProviderGroupView {
+  group_id: string;
+  name: string;
+  ratio: number;
+  priority: number;
+}
+
+export interface GroupProviderView {
+  group_id: string;
+  provider_id: string;
+  name: string;
+  type: string;
+  status: Status;
+  priority: number;
 }
 
 // A provider↔proxy association, enriched with proxy details by the backend.
@@ -132,6 +161,7 @@ export interface RequestLog {
   endpoint: string;
   ttft_ms: number;
   account_id: string;
+  group: string;
   cost: number;
   type: string; // stream | nonstream
   cached_tokens: number;

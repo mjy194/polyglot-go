@@ -8,6 +8,9 @@ import type {
   Provider,
   Proxy,
   ProviderProxyView,
+  ProviderGroupView,
+  GroupProviderView,
+  Group,
   ModelMapping,
   Adapter,
   AdapterInstance,
@@ -112,15 +115,19 @@ export const listUserRoles = (userId: string) =>
 export const assignRole = (ur: UserRole) =>
   client.post<UserRole>('/user-roles', ur).then((r) => r.data);
 
-// ---- API Keys ----
+// ---- API Keys (user's own config) ----
 export const listApiKeys = () => client.get<APIKey[]>('/api-keys').then((r) => r.data);
 export const upsertApiKey = (key: Partial<APIKey>) =>
   client.post<APIKey>('/api-keys', key).then((r) => r.data);
+export const deleteApiKey = (id: string) =>
+  client.delete<{ deleted: string }>(`/api-keys/${id}`).then((r) => r.data);
 
 // ---- Providers ----
 export const listProviders = () => client.get<Provider[]>('/providers').then((r) => r.data);
 export const upsertProvider = (provider: Partial<Provider>) =>
   client.post<Provider>('/providers', provider).then((r) => r.data);
+export const deleteProvider = (id: string) =>
+  client.delete<{ deleted: string }>(`/providers/${id}`).then((r) => r.data);
 
 export interface ProviderHealth {
   requests_total: number;
@@ -166,7 +173,20 @@ export const setProviderProxies = (
   assocs: { proxy_id: string; priority: number }[],
 ) => client.post(`/providers/${providerId}/proxies`, assocs).then((r) => r.data);
 
-// ---- Model Mappings (provider-owned 1:N) ----
+// ---- Groups (access/billing tier between users/keys and providers) ----
+export const listGroups = () => client.get<Group[]>('/groups').then((r) => r.data);
+export const upsertGroup = (g: Partial<Group>) =>
+  client.post<Group>('/groups', g).then((r) => r.data);
+export const deleteGroup = (id: string) =>
+  client.delete<{ deleted: string }>(`/groups/${id}`).then((r) => r.data);
+export const listProviderGroups = (providerId: string) =>
+  client.get<ProviderGroupView[]>(`/providers/${providerId}/groups`).then((r) => r.data);
+export const setProviderGroups = (providerId: string, groups: { group_id: string; priority: number }[]) =>
+  client.post(`/providers/${providerId}/groups`, groups).then((r) => r.data);
+export const listGroupProviders = (groupId: string) =>
+  client.get<GroupProviderView[]>(`/groups/${groupId}/providers`).then((r) => r.data);
+export const setGroupProviders = (groupId: string, providers: { provider_id: string; priority: number }[]) =>
+  client.post(`/groups/${groupId}/providers`, providers).then((r) => r.data);
 export const listProviderModelMappings = (providerId: string) =>
   client.get<ModelMapping[]>(`/providers/${providerId}/model-mappings`).then((r) => r.data);
 export const upsertProviderModelMapping = (providerId: string, m: Partial<ModelMapping>) =>

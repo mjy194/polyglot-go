@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Providers from './pages/Providers';
 import Proxies from './pages/Proxies';
+import Groups from './pages/Groups';
 import ApiKeys from './pages/ApiKeys';
 import Users from './pages/Users';
 import Roles from './pages/Roles';
@@ -66,6 +67,7 @@ function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/providers" element={<Providers />} />
         <Route path="/proxies" element={<Proxies />} />
+        <Route path="/groups" element={<Groups />} />
         <Route path="/api-keys" element={<ApiKeys />} />
         <Route path="/users" element={<Users />} />
         <Route path="/roles" element={<Roles />} />

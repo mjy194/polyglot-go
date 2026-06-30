@@ -10,6 +10,7 @@ import {
   BarChartOutlined,
   SettingOutlined,
   GlobalOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 
 export interface NavItem {
@@ -37,6 +38,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { path: '/providers', label: 'Providers', icon: <ApiOutlined /> },
       { path: '/proxies', label: '代理', icon: <GlobalOutlined /> },
+      { path: '/groups', label: '分组', icon: <AppstoreOutlined /> },
       { path: '/adapters', label: 'Adapters', icon: <ClusterOutlined /> },
     ],
   },

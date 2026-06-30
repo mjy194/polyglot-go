@@ -107,7 +107,10 @@ func apiKeyFromRequest(c *gin.Context) string {
 	if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
 		return strings.TrimSpace(auth[len("Bearer "):])
 	}
-	return strings.TrimSpace(c.GetHeader("x-api-key"))
+	if key := strings.TrimSpace(c.GetHeader("x-api-key")); key != "" {
+		return key
+	}
+	return strings.TrimSpace(c.GetHeader("x-goog-api-key"))
 }
 
 func bearerTokenFromRequest(c *gin.Context) string {

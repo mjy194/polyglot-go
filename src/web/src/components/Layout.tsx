@@ -1,6 +1,15 @@
 import { ReactNode, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Layout as AntLayout, Menu, Button, Dropdown, Avatar, Space, Typography } from 'antd';
+import {
+  Layout as AntLayout,
+  Menu,
+  Button,
+  Dropdown,
+  Avatar,
+  Space,
+  Typography,
+  theme as antdTheme,
+} from 'antd';
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -10,6 +19,8 @@ import {
 } from '@ant-design/icons';
 import { navGroups } from '../router';
 import { useAuth } from '../context/AuthContext';
+import { useThemeMode } from '../context/ThemeContext';
+import ThemeToggleButton from './ThemeToggleButton';
 
 const { Header, Sider, Content } = AntLayout;
 const { Text } = Typography;
@@ -40,9 +51,13 @@ function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { mode } = useThemeMode();
+  const { token } = antdTheme.useToken();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(COLLAPSE_KEY) === '1',
   );
+  const isDark = mode === 'dark';
+  const siderBg = isDark ? '#0f172a' : token.colorBgContainer;
 
   const toggle = () => {
     const next = !collapsed;
@@ -82,6 +97,10 @@ function Layout({ children }: { children: ReactNode }) {
         onBreakpoint={(broken) => setCollapsed(broken)}
         width={220}
         collapsedWidth={72}
+        style={{
+          background: siderBg,
+          borderInlineEnd: isDark ? 'none' : `1px solid ${token.colorBorderSecondary}`,
+        }}
       >
         <div
           style={{
@@ -89,7 +108,7 @@ function Layout({ children }: { children: ReactNode }) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#fff',
+            color: isDark ? '#fff' : token.colorText,
             fontSize: collapsed ? 22 : 18,
             fontWeight: 600,
             letterSpacing: 0.3,
@@ -98,11 +117,11 @@ function Layout({ children }: { children: ReactNode }) {
           {collapsed ? '🌐' : '🌐 Polyglot'}
         </div>
         <Menu
-          theme="dark"
+          theme={isDark ? 'dark' : 'light'}
           mode="inline"
           selectedKeys={[location.pathname]}
           items={collapsed ? flatItems : groupedItems}
-          style={{ borderInlineEnd: 'none' }}
+          style={{ borderInlineEnd: 'none', background: siderBg }}
         />
       </Sider>
 
@@ -112,7 +131,8 @@ function Layout({ children }: { children: ReactNode }) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            borderBottom: '1px solid #eef0f3',
+            background: token.colorBgContainer,
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
             position: 'sticky',
             top: 0,
             zIndex: 10,
@@ -124,12 +144,13 @@ function Layout({ children }: { children: ReactNode }) {
             onClick={toggle}
             style={{ fontSize: 16 }}
           />
-          <Space size={16}>
+          <Space size={8}>
+            <ThemeToggleButton />
             <Dropdown menu={userMenu} placement="bottomRight">
               <Avatar
                 size="small"
                 icon={<UserOutlined />}
-                style={{ cursor: 'pointer', backgroundColor: '#4f46e5' }}
+                style={{ cursor: 'pointer', backgroundColor: token.colorPrimary }}
               />
             </Dropdown>
           </Space>
